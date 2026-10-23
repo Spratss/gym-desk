@@ -332,6 +332,11 @@ body.has-rest #view{padding-bottom:calc(var(--nav-h) + 128px + env(safe-area-ins
 .scanbox{position:relative;border-radius:18px;overflow:hidden;background:#000;aspect-ratio:4/3;max-width:100%}
 .scanbox video{width:100%;height:100%;object-fit:cover;display:block}
 .scanbox .aim{position:absolute;left:12%;right:12%;top:38%;bottom:38%;border:3px solid rgba(255,255,255,.9);border-radius:12px;box-shadow:0 0 0 999px rgba(0,0,0,.25)}
+.torch{position:absolute;top:10px;right:10px;display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 14px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;font-weight:700;font-size:14px}
+.torch svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round}
+.torch.on{background:#fff;color:#111}
+.photo-read{display:grid;gap:8px}
+.photo-read .btn svg{width:22px;height:22px}
 .scanmsg{position:absolute;left:0;right:0;bottom:10px;text-align:center;color:#fff;font-weight:600;font-size:14px;text-shadow:0 1px 3px rgba(0,0,0,.7)}
 .amount{padding:16px;display:grid;gap:14px}
 .amount h3{font-family:var(--f-display);font-weight:900;font-size:30px;text-transform:uppercase;line-height:1;overflow-wrap:anywhere}

@@ -3,7 +3,7 @@
 Self-hosted training and food tracker. One container, one SQLite file.
 
 - **Train:** Push / Pull / Legs rotation, set logging, rest timer, bike finisher, progression prompts
-- **Food:** barcode scan, search (Australian Food Composition Database, Open Food Facts, USDA fallback), saved meals, copy yesterday, grams
+- **Food:** barcode scan with torch, nutrition-label photo reading, search (Australian Food Composition Database, Open Food Facts, USDA fallback), saved meals, copy yesterday, grams
 - **Targets:** calories and macros from height, weight, age, activity and goal, plus a weekly check-in that adjusts them from your real weight trend
 - **Log:** sessions, lift trends, bodyweight with a 7-day average
 - Works offline at the gym: changes queue on the phone and sync when signal returns
@@ -35,7 +35,7 @@ Every push to `main` runs the tests and publishes an image to `ghcr.io/spratss/g
 | Extra parameters (advanced view) | `--user 99:100` |
 | Port | container `8080` → host `8085` |
 | Path | container `/data` → host `/mnt/user/appdata/gym-desk` |
-| Variables (optional) | `APP_PASSWORD`, `USDA_API_KEY`, `OFF_COUNTRY=australia` |
+| Variables (optional) | `APP_PASSWORD`, `USDA_API_KEY`, `ANTHROPIC_API_KEY`, `OFF_COUNTRY=australia` |
 
 **Updating:** push to `main`, wait for the Actions build to go green, then Docker tab → **Check for updates** → **Apply update** on gym-desk. Keep it out of automatic container updates so you can read what changed first.
 
@@ -68,11 +68,18 @@ The camera only works over HTTPS, which the tunnel provides.
 |---|---|
 | `APP_PASSWORD` | Optional password screen. Leave blank when Cloudflare Access is in front. |
 | `USDA_API_KEY` | Free key from [api.data.gov](https://api.data.gov/signup/). Blank uses the shared demo key, which runs out quickly. |
+| `ANTHROPIC_API_KEY` | Optional. Claude reads nutrition-label photos (more accurate). Without it, the server reads them with Tesseract OCR, privately and for free. Get a key at [console.anthropic.com](https://console.anthropic.com). |
+| `ANTHROPIC_MODEL` | Model for label reading (default `claude-haiku-5-5`). |
 | `USDA` | `auto` (default): only search USDA when Australian results are thin. `always` or `off`. |
 | `OFF_COUNTRY` | Open Food Facts country filter for search (default `australia`). Barcode lookups are always worldwide. |
 | `AFCD` | Set to `off` to leave out the Australian food database. |
 | `AFCD_URL` | FSANZ download link used by **Update** in Settings, for when a new release comes out. |
 | `TZ` | Server time zone (Unraid sets this automatically). |
+
+## Scanning and label photos
+
+- **Barcodes:** Chrome on Android reads them from the live camera (tap **Torch** in a dim kitchen). Other browsers can type the number.
+- **Label photos:** on the **New** food screen, **Read the label from a photo** fills in calories, protein, carbs, fat and serving size from the nutrition panel. Fill the frame with the table, straight on, in good light, and check the numbers before saving. A product saved with its barcode is found instantly next time.
 
 ## Food data
 

@@ -5,6 +5,7 @@ const express = require('express');
 const { db, DATA_DIR } = require('./db');
 const food = require('./food');
 const afcd = require('./afcd');
+const label = require('./label');
 
 const PORT = Number(process.env.PORT) || 8080;
 const APP_PASSWORD = process.env.APP_PASSWORD || '';
@@ -309,6 +310,21 @@ app.post('/api/afcd/upload', express.raw({ type: () => true, limit: '30mb' }), (
   try { res.json(afcd.importFile(req.body)); } catch (e) { bad(res, e.message); }
 });
 
+/* ---------- nutrition label photos ---------- */
+app.get('/api/label', (req, res) => res.json({ engine: label.engine() }));
+let reading = 0;
+app.post('/api/label/read', express.raw({ type: ['image/*', 'application/octet-stream'], limit: '12mb' }), wrap(async (req, res) => {
+  if (!req.body || !req.body.length) return bad(res, 'Send a photo of the nutrition panel.');
+  if (reading >= 2) return bad(res, 'Still reading the last photo. Try again in a moment.', 429);
+  const type = /^image\/(jpeg|png|webp|gif)$/.test(req.headers['content-type']) ? req.headers['content-type'] : 'image/jpeg';
+  reading++;
+  try {
+    const r = await label.read(req.body, type);
+    if (!r.readable) return res.status(422).json({ error: 'Couldn’t read the panel. Try a closer, straighter photo in good light, with the whole table in frame.', engine: r.engine });
+    res.json(r);
+  } finally { reading--; }
+}));
+
 /* ---------- saved meals ---------- */
 const mq = {
   all: db.prepare('SELECT id, name, items, use_count, last_used FROM saved_meals ORDER BY use_count DESC, name'),
@@ -410,6 +426,8 @@ app.use((err, req, res, next) => {
 });
 
 if (require.main === module) {
+  // Exit promptly on docker stop (Node as PID 1 ignores SIGTERM otherwise).
+  for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { label.close().finally(() => process.exit(0)); setTimeout(() => process.exit(0), 3000).unref(); });
   app.listen(PORT, () => {
     console.log(`Gym Desk ${VERSION} on :${PORT}${APP_PASSWORD ? ' (password on)' : ''} · data in ${DATA_DIR}`);
     afcd.ensure();

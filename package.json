@@ -1,6 +1,6 @@
 {
   "name": "gym-desk",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Self-hosted gym and food tracker",
   "main": "server/index.js",
   "scripts": {
@@ -9,8 +9,10 @@
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
+    "@tesseract.js-data/eng": "1.0.0",
     "express": "5.1.0",
-    "fflate": "0.8.2"
+    "fflate": "0.8.2",
+    "tesseract.js": "6.0.1"
   },
   "private": true,
   "engines": {

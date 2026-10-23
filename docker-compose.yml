@@ -12,5 +12,6 @@ services:
       APP_PASSWORD: ${APP_PASSWORD:-}     # optional extra lock; leave blank if Cloudflare Access is in front
       USDA_API_KEY: ${USDA_API_KEY:-}     # free key from api.data.gov (blank = shared demo key, low limits)
       OFF_COUNTRY: ${OFF_COUNTRY:-australia}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}  # optional: Claude reads label photos instead of on-server OCR
     volumes:
       - ${DATA_PATH:-/mnt/user/appdata/gym-desk}:/data

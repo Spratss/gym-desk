@@ -2,7 +2,7 @@ FROM node:22-alpine
 ENV NODE_ENV=production PORT=8080 DATA_DIR=/data
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev && npm cache clean --force && rm -rf node_modules/@tesseract.js-data/eng/4.0.0
 COPY server ./server
 COPY public ./public
 RUN mkdir -p /data && chown node:node /data

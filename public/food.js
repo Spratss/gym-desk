@@ -8,6 +8,8 @@ var STAR='<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><pa
 var STAR_O='<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8L3.5 9.7l5.9-.9z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>';
 var SCAN_ICON='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 8v8M11 8v8M14 8v8M17 8v8"/></svg>';
 
+var CAM_ICON='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>';
+var TORCH_ICON='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l-1 5H9zM9 8h6v3l-1.5 2v8h-3v-8L9 11z"/></svg>';
 S.foodDate=GD.dkey(new Date());
 S.foodDays=LS.get('foodDays',{});
 S.foodLoaded={};
@@ -185,10 +187,11 @@ function doSearch(q){
 var cam={stream:null,timer:null,det:null};
 function scanHtml(){
   var supported='BarcodeDetector' in window;
-  return (supported?'<div class="scanbox"><video id="scanVid" playsinline muted></video><div class="aim"></div><div class="scanmsg" id="scanMsg">Starting camera…</div></div>'
+  return (supported?'<div class="scanbox"><video id="scanVid" playsinline muted></video><div class="aim"></div><button class="torch" id="torchBtn" data-act="ftorch" aria-pressed="false" hidden>'+TORCH_ICON+'<span>Torch</span></button><div class="scanmsg" id="scanMsg">Starting camera…</div></div>'
     :'<p class="note">This browser can’t read barcodes from the camera. Chrome on Android can. Type the number under the barcode instead.</p>')
     +(S.add.msg?'<p class="note">'+esc(S.add.msg)+'</p>':'')
-    +'<form class="search-row" id="fbar"><input id="fcode" type="text" inputmode="numeric" autocomplete="off" placeholder="Barcode number"><button class="btn" type="submit">Look up</button></form>';
+    +'<form class="search-row" id="fbar"><input id="fcode" type="text" inputmode="numeric" autocomplete="off" placeholder="Barcode number"><button class="btn" type="submit">Look up</button></form>'
+    +'<button class="link" data-act="ftab" data-t="custom">No barcode? Photograph the nutrition panel instead</button>';
 }
 function startCamera(){
   if(!('BarcodeDetector' in window))return;
@@ -200,7 +203,13 @@ function startCamera(){
     return navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280}},audio:false});
   }).then(function(stream){
     if(!S.add||S.add.tab!=='scan'||S.add.picked){stream.getTracks().forEach(function(t){t.stop()});return}
-    cam.stream=stream;vid.srcObject=stream;return vid.play().then(function(){msg.textContent='Point at the barcode';loop()});
+    cam.stream=stream;cam.torch=false;vid.srcObject=stream;
+    return vid.play().then(function(){
+      msg.textContent='Point at the barcode';
+      var track=stream.getVideoTracks()[0],caps=track&&track.getCapabilities?track.getCapabilities():{};
+      if(caps&&caps.torch){cam.track=track;var b=$('#torchBtn');if(b)b.hidden=false}
+      loop();
+    });
   }).catch(function(e){if(msg)msg.textContent=e&&e.name==='NotAllowedError'?'Camera blocked. Allow it in your browser’s site settings, or type the number below.':'Couldn’t start the camera. Type the number below.'});
   function loop(){
     if(!cam.stream)return;
@@ -211,12 +220,16 @@ function startCamera(){
     },function(){cam.timer=setTimeout(loop,400)});
   }
 }
-function stopCamera(){clearTimeout(cam.timer);if(cam.stream){cam.stream.getTracks().forEach(function(t){t.stop()});cam.stream=null}}
+function stopCamera(){clearTimeout(cam.timer);if(cam.stream){cam.stream.getTracks().forEach(function(t){t.stop()});cam.stream=null}cam.track=null;cam.torch=false}
+function toggleTorch(){
+  if(!cam.track)return;var want=!cam.torch;
+  cam.track.applyConstraints({advanced:[{torch:want}]}).then(function(){cam.torch=want;var b=$('#torchBtn');if(b){b.setAttribute('aria-pressed',String(want));b.classList.toggle('on',want);b.querySelector('span').textContent=want?'Torch on':'Torch'}},function(){GD.toast('This phone won’t turn the torch on from the browser.')});
+}
 function lookupBarcode(code){
   var a=S.add;if(!a)return;var body=$('#fsBody');if(body)body.innerHTML='<div class="skel">Looking up '+esc(code)+'…</div>';
   GD.api('GET','/api/foods/barcode/'+encodeURIComponent(code)).then(function(b){if(S.add!==a)return;pick(b.food);if(b.from==='off'&&!hasNutrition(b.food))GD.toast('Found it, but it has no nutrition info. Add it from the label.')},function(e){
     if(S.add!==a)return;
-    if(e.status===404){a.tab='custom';a.custom={barcode:code};a.msg='Barcode '+code+' isn’t in Open Food Facts yet. Add it from the label and the next scan will find it.';renderAddBody();return}
+    if(e.status===404){a.tab='custom';a.custom={barcode:code};a.msg='Barcode '+code+' isn’t in Open Food Facts yet. Photograph the nutrition panel (or type it in) and the next scan will find it.';renderAddBody();return}
     var local=(S.recent||[]).find(function(f){return f.barcode===code});
     if(local){pick(local);return}
     a.msg=e.offline?'You’re offline and this product isn’t saved on this phone yet.':e.message;renderAddBody();
@@ -226,7 +239,11 @@ function lookupBarcode(code){
 /* ---------- custom food ---------- */
 function customHtml(){
   var c=S.add.custom||{},perServe=!!c.perServe,v=function(k){return esc(c[k]==null?'':c[k])};
-  return (S.add.msg?'<p class="note">'+esc(S.add.msg)+'</p>':'')
+  if(S.add.reading)return '<div class="skel">Reading the label'+(S.labelEngine==='claude'?' with Claude':'')+'…</div>';
+  if(S.labelEngine===undefined){S.labelEngine=null;GD.api('GET','/api/label').then(function(b){S.labelEngine=b.engine;if(S.add&&S.add.tab==='custom'&&!S.add.reading)renderAddBody()},function(){})}
+  return '<div class="photo-read"><label class="btn block big" for="labelFile">'+CAM_ICON+'Read the label from a photo</label><input id="labelFile" type="file" accept="image/*" capture="environment" hidden>'
+    +'<p class="small">Fill the whole photo with the nutrition table, straight on, in good light. '+(S.labelEngine==='claude'?'Claude reads it.':'Your server reads it, so it stays private.')+' You check the numbers before saving.</p></div>'
+    +(S.add.msg?'<p class="note">'+esc(S.add.msg)+'</p>':'')
     +'<form class="card amount" id="fcustom">'
     +'<div class="field"><label for="cName">Name</label><input id="cName" required autocomplete="off" value="'+v('name')+'" placeholder="e.g. Protein shake"></div>'
     +'<div class="fgrid2"><div class="field"><label for="cBrand">Brand</label><input id="cBrand" autocomplete="off" value="'+v('brand')+'" placeholder="optional"></div>'
@@ -239,6 +256,42 @@ function customHtml(){
     +'<div class="field"><label for="cFat">Fat (g)</label><input id="cFat" inputmode="decimal" autocomplete="off" value="'+v('fat')+'"></div></div>'
     +'<p class="small">Australian labels list energy in kJ. Divide by 4.18 for kcal, or type the kJ number followed by “kj” (e.g. 1590kj).</p>'
     +'<button class="btn primary block big" type="submit">'+(c.id?'Save changes':'Save food')+'</button></form>';
+}
+// Keep whatever was typed in the form before re-rendering it.
+function captureCustom(){
+  var c=S.add.custom=S.add.custom||{},f=function(id){var el=$('#'+id);return el?el.value:undefined},set=function(k,id){var v=f(id);if(v!==undefined)c[k]=v};
+  set('name','cName');set('brand','cBrand');set('barcode','cBar');set('serving_g','cServe');set('kcal','cKcal');set('protein','cProt');set('carbs','cCarb');set('fat','cFat');
+  return c;
+}
+// Shrink, greyscale and stretch the contrast of a photo before uploading: faster, and easier to read.
+function prepareImage(file){
+  var load=window.createImageBitmap?createImageBitmap(file,{imageOrientation:'from-image'}):new Promise(function(res,rej){var i=new Image();i.onload=function(){res(i)};i.onerror=rej;i.src=URL.createObjectURL(file)});
+  return load.then(function(img){
+    var max=1568,w=img.width,h=img.height,k=Math.min(1,max/Math.max(w,h)),cv=document.createElement('canvas');
+    cv.width=Math.round(w*k);cv.height=Math.round(h*k);var ctx=cv.getContext('2d');ctx.drawImage(img,0,0,cv.width,cv.height);
+    var d=ctx.getImageData(0,0,cv.width,cv.height),px=d.data,hist=new Uint32Array(256),n=px.length/4,i,y;
+    for(i=0;i<px.length;i+=4){y=(px[i]*0.299+px[i+1]*0.587+px[i+2]*0.114)|0;px[i]=y;hist[y]++}
+    var lo=0,hi=255,acc=0;for(lo=0;lo<255&&(acc+=hist[lo])<n*0.02;lo++);acc=0;for(hi=255;hi>0&&(acc+=hist[hi])<n*0.02;hi--);
+    var span=Math.max(1,hi-lo);
+    for(i=0;i<px.length;i+=4){y=Math.max(0,Math.min(255,(px[i]-lo)*255/span));px[i]=px[i+1]=px[i+2]=y}
+    ctx.putImageData(d,0,0);
+    return new Promise(function(res){cv.toBlob(function(b){res(b||file)},'image/jpeg',0.88)});
+  });
+}
+function readLabel(file){
+  var a=S.add;if(!a)return;captureCustom();a.reading=true;a.msg='';renderAddBody();
+  prepareImage(file).catch(function(){return file}).then(function(blob){
+    return fetch('/api/label/read',{method:'POST',headers:{'content-type':blob.type||'image/jpeg'},body:blob,credentials:'same-origin'})
+      .then(function(r){return r.json().catch(function(){return {}}).then(function(b){if(!r.ok)throw new Error(b.error||'Couldn’t read the label.');return b})});
+  }).then(function(r){
+    if(S.add!==a)return;var c=a.custom=a.custom||{};
+    ['kcal','protein','carbs','fat'].forEach(function(k){if(r[k]!=null)c[k]=r[k]});
+    if(r.serving_g)c.serving_g=r.serving_g;if(r.name&&!c.name)c.name=r.name;if(r.brand&&!c.brand)c.brand=r.brand;
+    c.perServe=false;a.reading=false;
+    var missing=['kcal','protein','carbs','fat'].filter(function(k){return r[k]==null}).map(function(k){return {kcal:'calories',protein:'protein',carbs:'carbs',fat:'fat'}[k]});
+    a.msg=(r.note?r.note+' ':'')+'Read '+(r.engine==='claude'?'with Claude':'on your server')+'. These are per 100 g. Check them against the label'+(missing.length?' and fill in '+missing.join(', '):'')+', then save.';
+    renderAddBody();
+  },function(e){if(S.add!==a)return;a.reading=false;a.msg=e.message||'Couldn’t read the label.';renderAddBody()});
 }
 function kcalFrom(raw){var s=String(raw||'').trim().toLowerCase();if(!s)return null;var n=num(s.replace(/kj|kcal|cal/g,''));if(n==null)return null;return /kj/.test(s)?r1(n/4.184):n}
 function saveCustom(){
@@ -406,6 +459,7 @@ Object.assign(GD.ACT,{
     GD.api('PATCH','/api/foods/'+encodeURIComponent(f.id),{favourite:f.favourite}).then(function(b){upsertRecent(Object.assign({},b.food,{last_grams:f.last_grams}))},function(e){GD.toast(e.offline?'Favourites need a connection.':e.message)})},
   fedfood:function(){var a=S.add,f=a.picked;a.custom={id:f.id,source:f.source,source_id:f.source_id,name:f.name,brand:f.brand,barcode:f.barcode,serving_g:f.serving_g,kcal:f.kcal,protein:f.protein,carbs:f.carbs,fat:f.fat};a.picked=null;a.tab='custom';a.msg='';renderAddBody()},
   cper:function(t){var c=S.add.custom=S.add.custom||{};c.perServe=t.dataset.v==='1';pressSeg(t)},
+  ftorch:toggleTorch,
   flog:logPicked,
   qmeal:pressSeg,emeal:pressSeg,
   qsave:saveQuick,
@@ -422,6 +476,7 @@ document.addEventListener('submit',function(e){
   else if(e.target.id==='fbar'){e.preventDefault();var c=$('#fcode').value.replace(/\D/g,'');if(c.length<6){GD.toast('Type the full number under the barcode.');return}lookupBarcode(c)}
   else if(e.target.id==='fcustom'){e.preventDefault();saveCustom()}
 });
+document.addEventListener('change',function(e){if(e.target.id==='labelFile'&&e.target.files&&e.target.files[0])readLabel(e.target.files[0])});
 document.addEventListener('input',function(e){
   if(e.target.id==='fg'&&S.add)setGrams(num(e.target.value),true);
   if(e.target.id==='eg')updateEditCalc();
