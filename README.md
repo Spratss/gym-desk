@@ -9,35 +9,30 @@ Self-hosted training and food tracker. One container, one SQLite file.
 - Works offline at the gym: changes queue on the phone and sync when signal returns
 - Installs to the Android home screen as an app (PWA)
 
-## Install on Unraid (Add Container)
+## Install on Unraid
 
-Every push to `main` runs the tests and publishes an image to `ghcr.io/spratss/gym-desk:latest` (GitHub → **Actions** shows the build).
+Image: `ghcr.io/spratss/gym-desk:latest`
 
-**One-off setup**
-
-1. **Make the image pullable.** GitHub → your profile → **Packages** → `gym-desk` → **Package settings** → **Change visibility** → Public. The image holds only app code; your data stays on the server. (To keep it private instead, run `docker login ghcr.io` on Unraid with a token that has `read:packages`. Unraid forgets that login on reboot, so updates fail until you log in again.)
-2. **Create the data folder** in the Unraid terminal:
+1. Create the data folder in the Unraid terminal:
    ```sh
    mkdir -p /mnt/user/appdata/gym-desk && chown 99:100 /mnt/user/appdata/gym-desk
    ```
-3. **Add the template.** Copy `unraid/gym-desk.xml` to the flash drive as `config/plugins/dockerMan/templates-user/my-gym-desk.xml`, either over the network (`\\<server>\flash\config\plugins\dockerMan\templates-user\`) or in the terminal with `nano /boot/config/plugins/dockerMan/templates-user/my-gym-desk.xml` and paste the file in.
-4. **Create the container.** Docker tab → **Add Container** → Template: **gym-desk** (under User templates). Fill in the USDA key if you have one → **Apply**.
-5. Open `http://<server-ip>:8085`.
-6. Optional: edit the container and set **Icon URL** to `http://<server-ip>:8085/icons/icon-192.png`.
+2. Copy `unraid/gym-desk.xml` to the flash drive as `config/plugins/dockerMan/templates-user/my-gym-desk.xml`.
+3. Docker tab → **Add Container** → Template: **gym-desk** → **Apply**.
+4. Open `http://<server-ip>:8085`.
 
-**Without the template:** Add Container and fill in the same values by hand.
+Or add the container by hand with these values:
 
 | Field | Value |
 |---|---|
-| Name | `gym-desk` |
 | Repository | `ghcr.io/spratss/gym-desk:latest` |
 | Network type | Bridge |
-| Extra parameters (advanced view) | `--user 99:100` |
+| Extra parameters | `--user 99:100` |
 | Port | container `8080` → host `8085` |
 | Path | container `/data` → host `/mnt/user/appdata/gym-desk` |
-| Variables (optional) | `APP_PASSWORD`, `USDA_API_KEY`, `ANTHROPIC_API_KEY`, `OFF_COUNTRY=australia` |
+| Variables (optional) | see [Settings](#settings) |
 
-**Updating:** push to `main`, wait for the Actions build to go green, then Docker tab → **Check for updates** → **Apply update** on gym-desk. Keep it out of automatic container updates so you can read what changed first.
+Update from the Docker tab (**Check for updates** → **Apply update**). Leave it out of automatic updates.
 
 ## Install with Docker Compose (alternative)
 
@@ -96,3 +91,5 @@ npm test
 ```
 
 Node 22.13 or newer (uses the built-in `node:sqlite`). The front end is plain JavaScript in `public/`, with no build step.
+
+Pushes to `main` run the tests and publish the image to GHCR (`.github/workflows/docker.yml`).
