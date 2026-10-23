@@ -143,3 +143,25 @@ test('saved meals round-trip and survive export/import', async () => {
   assert.equal(dump.meals.length, 1);
   assert.equal((await api('POST', '/api/import', dump)).body.counts.meals, 1);
 });
+
+test('recipes keep their ingredients and log by portion', async () => {
+  const recipe = { items: [
+    { name: 'Spaghetti, dry', grams: 500, kcal100: 350, protein100: 12, carbs100: 70, fat100: 1.5 },
+    { name: 'Beef mince', grams: 500, kcal100: 170, protein100: 22, carbs100: 0, fat100: 9 },
+    { name: 'Pasta sauce', grams: 500, kcal100: 50, protein100: 1.5, carbs100: 8, fat100: 1 },
+  ], cooked_g: 2000, servings: 4 };
+  // totals: 2850 kcal, 177.5 g protein over 2000 g cooked
+  const saved = (await api('POST', '/api/foods', { source: 'recipe', name: 'Spag bol', kcal: 142.5, protein: 8.9, carbs: 19.5, fat: 5.8, serving_g: 500, serving_label: '1 of 4 serves', recipe })).body.food;
+  assert.equal(saved.source, 'recipe');
+  assert.equal(saved.recipe.items.length, 3);
+  assert.equal(saved.recipe.cooked_g, 2000);
+  const e = (await api('POST', '/api/food/log', { date: '2026-10-24', meal: 'dinner', foodId: saved.id, grams: 500 })).body.entry;
+  assert.equal(e.kcal, 712.5);
+  // editing the recipe keeps it a recipe; patching other fields keeps the ingredients
+  const edited = (await api('PATCH', '/api/foods/' + saved.id, { recipe: { ...recipe, servings: 5 }, serving_g: 400 })).body.food;
+  assert.equal(edited.recipe.servings, 5);
+  const fav = (await api('PATCH', '/api/foods/' + saved.id, { favourite: true })).body.food;
+  assert.equal(fav.recipe.items.length, 3, 'unrelated edits keep the ingredients');
+  const again = (await api('POST', '/api/foods', { source: 'recipe', name: 'Spag bol', kcal: 140, recipe })).body.food;
+  assert.notEqual(again.id, saved.id, 'a new recipe with the same name is its own food');
+});

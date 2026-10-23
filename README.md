@@ -3,7 +3,7 @@
 Self-hosted training and food tracker. One container, one SQLite file.
 
 - **Train:** Push / Pull / Legs rotation, set logging, rest timer, bike finisher, progression prompts
-- **Food:** barcode scan with torch, nutrition-label photo reading, search (Australian Food Composition Database, Open Food Facts, USDA fallback), saved meals, copy yesterday, grams
+- **Food:** barcode scan with torch, nutrition-label photo reading, search (Australian Food Composition Database, Open Food Facts, USDA fallback), recipes for batch cooking, saved meals, copy yesterday, grams
 - **Targets:** calories and macros from height, weight, age, activity and goal, plus a weekly check-in that adjusts them from your real weight trend
 - **Log:** sessions, lift trends, bodyweight with a 7-day average
 - Works offline at the gym: changes queue on the phone and sync when signal returns

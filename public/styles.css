@@ -336,6 +336,10 @@ body.has-rest #view{padding-bottom:calc(var(--nav-h) + 128px + env(safe-area-ins
 .torch svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round}
 .torch.on{background:#fff;color:#111}
 .photo-read{display:grid;gap:8px}
+.rlist{display:grid;gap:6px}
+.ring{display:grid;grid-template-columns:minmax(0,1fr) 84px auto 36px;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.ring .step.mini{width:84px;height:40px}
+.ring .step.mini input{font-size:17px}
 .photo-read .btn svg{width:22px;height:22px}
 .scanmsg{position:absolute;left:0;right:0;bottom:10px;text-align:center;color:#fff;font-weight:600;font-size:14px;text-shadow:0 1px 3px rgba(0,0,0,.7)}
 .amount{padding:16px;display:grid;gap:14px}

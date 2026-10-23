@@ -124,7 +124,7 @@ function closeAdd(fromPop){stopCamera();S.add=null;var sh=$('#sheet');sh.hidden=
   if(!fromPop&&history.state&&history.state.gdAdd){try{history.back()}catch(e){}}}
 window.addEventListener('popstate',function(){
   if(!S.add)return;
-  if(S.add.picked){S.add.picked=null;renderAddBody();try{history.pushState({gdAdd:true},'')}catch(e){}}
+  if(S.add.picked||S.add.forRecipe){GD.ACT.fback();try{history.pushState({gdAdd:true},'')}catch(e){}}
   else closeAdd(true);
 });
 GD.onSheetClose=function(){if(S.add)closeAdd();document.body.style.overflow=''};
@@ -133,7 +133,7 @@ function renderAddBody(){
   var a=S.add;if(!a)return;var body=$('#fsBody');if(!body)return;
   document.querySelectorAll('.fs-tabs button').forEach(function(b){b.setAttribute('aria-pressed',String(!a.picked&&b.dataset.t===a.tab))});
   $('.fs-tabs').hidden=!!a.picked;
-  $('#fsT').textContent=a.picked?'How much?':'Add to '+MEAL_NAME[a.meal].toLowerCase();
+  $('#fsT').textContent=a.forRecipe?(a.picked?'How much went in?':'Add an ingredient'):a.picked?'How much?':(a.tab==='custom'&&a.newKind==='recipe')?'Recipe':'Add to '+MEAL_NAME[a.meal].toLowerCase();
   if(a.picked){body.innerHTML=amountHtml();return}
   if(a.tab==='recent')body.innerHTML=recentHtml();
   else if(a.tab==='search'){body.innerHTML=searchHtml();var i=$('#fq');if(i&&!a.results)i.focus()}
@@ -159,7 +159,8 @@ function recentHtml(){
   if(!list.length&&(S.meals||[]).length)return mealsHtml();
   if(!list.length)return '<div class="empty"><h2>Nothing yet</h2><p>Foods you log show up here with the amount you had last time, so repeats take two taps. Scan a barcode or search to add your first.</p><div class="chips"><button class="btn primary" data-act="ftab" data-t="scan">Scan a barcode</button><button class="btn" data-act="ftab" data-t="search">Search</button></div></div>';
   S.add.lists={recent:list};
-  return mealsHtml()+'<section class="blk">'+((S.meals||[]).length?'<h3 class="sec">Recent foods</h3>':'')+'<div class="results">'+list.map(function(f,i){return resRow(f,i,'recent')}).join('')+'</div></section>';
+  var mh=S.add.forRecipe?'':mealsHtml();
+  return mh+'<section class="blk">'+(mh?'<h3 class="sec">Recent foods</h3>':'')+'<div class="results">'+list.map(function(f,i){return resRow(f,i,'recent')}).join('')+'</div></section>';
 }
 function searchHtml(){
   var a=S.add,h='<form class="search-row" id="fsearch"><input id="fq" type="search" enterkeyhint="search" autocomplete="off" placeholder="e.g. chicken breast, Chobani" value="'+esc(a.q)+'"><button class="btn primary" type="submit">Search</button></form>';
@@ -229,7 +230,7 @@ function lookupBarcode(code){
   var a=S.add;if(!a)return;var body=$('#fsBody');if(body)body.innerHTML='<div class="skel">Looking up '+esc(code)+'…</div>';
   GD.api('GET','/api/foods/barcode/'+encodeURIComponent(code)).then(function(b){if(S.add!==a)return;pick(b.food);if(b.from==='off'&&!hasNutrition(b.food))GD.toast('Found it, but it has no nutrition info. Add it from the label.')},function(e){
     if(S.add!==a)return;
-    if(e.status===404){a.tab='custom';a.custom={barcode:code};a.msg='Barcode '+code+' isn’t in Open Food Facts yet. Photograph the nutrition panel (or type it in) and the next scan will find it.';renderAddBody();return}
+    if(e.status===404){a.tab='custom';a.newKind='food';a.custom={barcode:code};a.msg='Barcode '+code+' isn’t in Open Food Facts yet. Photograph the nutrition panel (or type it in) and the next scan will find it.';renderAddBody();return}
     var local=(S.recent||[]).find(function(f){return f.barcode===code});
     if(local){pick(local);return}
     a.msg=e.offline?'You’re offline and this product isn’t saved on this phone yet.':e.message;renderAddBody();
@@ -237,7 +238,15 @@ function lookupBarcode(code){
 }
 
 /* ---------- custom food ---------- */
+function kindToggle(){
+  if(S.add.forRecipe)return '';var k=S.add.newKind||'food';
+  return '<div class="seg" role="group" aria-label="What are you adding" style="grid-template-columns:1fr 1fr"><button data-act="nkind" data-v="food" aria-pressed="'+(k==='food')+'">Food from a label</button><button data-act="nkind" data-v="recipe" aria-pressed="'+(k==='recipe')+'">Recipe or batch</button></div>';
+}
 function customHtml(){
+  if(S.add.newKind==='recipe'&&!S.add.forRecipe)return kindToggle()+recipeHtml();
+  return kindToggle()+foodFormHtml();
+}
+function foodFormHtml(){
   var c=S.add.custom||{},perServe=!!c.perServe,v=function(k){return esc(c[k]==null?'':c[k])};
   if(S.add.reading)return '<div class="skel">Reading the label'+(S.labelEngine==='claude'?' with Claude':'')+'…</div>';
   if(S.labelEngine===undefined){S.labelEngine=null;GD.api('GET','/api/label').then(function(b){S.labelEngine=b.engine;if(S.add&&S.add.tab==='custom'&&!S.add.reading)renderAddBody()},function(){})}
@@ -314,20 +323,73 @@ function upsertRecent(f){if(!f||!f.id)return;S.recent=(S.recent||[]).filter(func
 /* ---------- amount ---------- */
 function pick(f){var a=S.add;stopCamera();a.picked=f;a.grams=f.last_grams||f.serving_g||100;renderAddBody()}
 function amountHtml(){
-  var a=S.add,f=a.picked,c=calc(f,a.grams),ok=hasNutrition(f);
-  var chips=[];if(f.serving_g)chips.push({g:f.serving_g,l:'1 serve · '+g(f.serving_g)+' g'});if(f.serving_g)chips.push({g:r1(f.serving_g*2),l:'2 serves'});
+  var a=S.add,f=a.picked,c=calc(f,a.grams),ok=hasNutrition(f),rec=f.source==='recipe'&&f.recipe,chips=[];
+  if(f.serving_g){chips.push({g:f.serving_g,l:'1 serve · '+g(f.serving_g)+' g'});chips.push({g:r1(f.serving_g*2),l:'2 serves'})}
+  if(rec){var basis=recipeBasis(f.recipe);chips.push({g:r1(basis/2),l:'Half the batch'});chips.push({g:r1(basis),l:'Whole batch · '+g(basis)+' g'})}
   if(f.last_grams&&f.last_grams!==f.serving_g)chips.push({g:f.last_grams,l:'Last time · '+g(f.last_grams)+' g'});
-  [50,100,150,200,250].forEach(function(x){if(!chips.some(function(c){return c.g===x}))chips.push({g:x,l:x+' g'})});
+  if(!rec||f.recipe.cooked_g)[50,100,150,200,250].forEach(function(x){if(!chips.some(function(c){return c.g===x}))chips.push({g:x,l:x+' g'})});
+  var src=f.source==='off'?'Open Food Facts':f.source==='usda'?'USDA':f.source==='afcd'?'Australian Food Composition Database':rec?'Your recipe':'Your food';
   return '<section class="card amount">'
-    +'<div><span class="src">'+(f.source==='off'?'Open Food Facts':f.source==='usda'?'USDA':f.source==='afcd'?'Australian Food Composition Database':'Your food')+(f.barcode?' · '+esc(f.barcode):'')+'</span><h3>'+esc(f.name)+'</h3>'+(f.brand?'<p class="small">'+esc(f.brand)+'</p>':'')+'</div>'
+    +'<div><span class="src">'+src+(f.barcode?' · '+esc(f.barcode):'')+'</span><h3>'+esc(f.name)+'</h3>'+(f.brand?'<p class="small">'+esc(f.brand)+'</p>':'')+'</div>'
     +'<p class="per100">Per 100 g: '+kc(f.kcal)+' kcal · '+g(f.protein)+' g protein · '+g(f.carbs)+' g carbs · '+g(f.fat)+' g fat</p>'
+    +(rec&&!f.recipe.cooked_g?'<p class="small">No cooked weight saved, so log it by serves rather than weighing your bowl.</p>':rec?'<p class="small">Weigh your bowl, or tap a serve.</p>':'')
     +(ok?'':'<p class="warn">No calories or protein on file. Add them from the label first.</p>')
     +'<div class="field"><label for="fg">Grams</label><div class="step big-step"><button data-act="fg-" aria-label="10 grams less">−</button><input id="fg" type="text" inputmode="decimal" autocomplete="off" value="'+esc(g(a.grams))+'"><button data-act="fg+" aria-label="10 grams more">+</button></div></div>'
-    +'<div class="chips">'+chips.slice(0,7).map(function(x){return '<button class="pick'+(x.g===a.grams?' on':'')+'" data-act="fgset" data-g="'+x.g+'">'+esc(x.l)+'</button>'}).join('')+'</div>'
+    +'<div class="chips">'+chips.slice(0,8).map(function(x){return '<button class="pick'+(x.g===a.grams?' on':'')+'" data-act="fgset" data-g="'+x.g+'">'+esc(x.l)+'</button>'}).join('')+'</div>'
     +'<div class="calc" id="fcalc">'+calcHtml(c)+'</div>'
-    +'<div class="seg four" role="group" aria-label="Meal">'+MEALS.map(function(m){return '<button data-act="fmeal" data-m="'+m+'" aria-pressed="'+(a.meal===m)+'">'+MEAL_NAME[m]+'</button>'}).join('')+'</div>'
-    +'<div class="sec-row">'+(f.id?'<button class="star'+(f.favourite?' on':'')+'" data-act="ffav">'+(f.favourite?STAR+' Favourite':STAR_O+' Add to favourites')+'</button>':'<span></span>')+'<button class="link" data-act="fedfood">Edit nutrition</button></div>'
-    +'<button class="btn primary block big" data-act="flog"'+(ok?'':' disabled')+'>Add to '+MEAL_NAME[a.meal].toLowerCase()+'</button></section>';
+    +(a.forRecipe?'<button class="btn primary block big" data-act="ringadd"'+(ok?'':' disabled')+'>Add to recipe</button></section>'
+    :'<div class="seg four" role="group" aria-label="Meal">'+MEALS.map(function(m){return '<button data-act="fmeal" data-m="'+m+'" aria-pressed="'+(a.meal===m)+'">'+MEAL_NAME[m]+'</button>'}).join('')+'</div>'
+    +'<div class="sec-row">'+(f.id?'<button class="star'+(f.favourite?' on':'')+'" data-act="ffav">'+(f.favourite?STAR+' Favourite':STAR_O+' Add to favourites')+'</button>':'<span></span>')+(rec?'<button class="link" data-act="redit">Edit recipe</button>':'<button class="link" data-act="fedfood">Edit nutrition</button>')+'</div>'
+    +'<button class="btn primary block big" data-act="flog"'+(ok?'':' disabled')+'>Add to '+MEAL_NAME[a.meal].toLowerCase()+'</button></section>');
+}
+
+/* ---------- recipes ---------- */
+// A recipe is built from ingredients (grams of each). Weigh the cooked pot to log portions by weight,
+// or set a number of serves. Either way it's saved as a food, so leftovers are one tap from Recent.
+function itemCalc(it){return calc({kcal:it.kcal100,protein:it.protein100,carbs:it.carbs100,fat:it.fat100},it.grams)}
+function recipeTotals(r){var t={kcal:0,protein:0,carbs:0,fat:0};(r.items||[]).forEach(function(it){var c=itemCalc(it);Object.keys(t).forEach(function(k){t[k]+=c[k]||0})});Object.keys(t).forEach(function(k){t[k]=r1(t[k])});return t}
+function rawGrams(r){return (r.items||[]).reduce(function(a,it){return a+(it.grams||0)},0)}
+function recipeBasis(r){return num(r.cooked_g)||rawGrams(r)}
+function draftRecipe(){var a=S.add;if(!a.recipe)a.recipe=LS.get('recipeDraft',null)||{name:'',items:[],cooked_g:null,servings:4};return a.recipe}
+function saveDraft(){if(S.add&&S.add.recipe&&!S.add.recipe.id)LS.set('recipeDraft',S.add.recipe)}
+function recipeHtml(){
+  var r=draftRecipe(),t=recipeTotals(r),n=r.items.length;
+  return '<section class="card amount" id="recipeForm">'
+    +'<div class="field"><label for="rName">Name</label><input id="rName" autocomplete="off" value="'+esc(r.name||'')+'" placeholder="e.g. Spag bol"></div>'
+    +'<div class="sec-row"><span class="flabel">Ingredients</span><span class="small">'+(n?n+' · weights before cooking':'')+'</span></div>'
+    +(n?'<div class="rlist">'+r.items.map(function(it,i){var c=itemCalc(it);return '<div class="ring"><span class="row-name">'+esc(it.name)+'<small id="rs-'+i+'">'+kc(c.kcal)+' kcal · '+g(c.protein)+' g protein</small></span><div class="step mini"><input id="ri-'+i+'" data-ri="'+i+'" type="text" inputmode="decimal" autocomplete="off" value="'+esc(g(it.grams))+'" aria-label="Grams of '+esc(it.name)+'"></div><span class="small">g</span><button class="x" data-act="rdel" data-i="'+i+'" aria-label="Remove '+esc(it.name)+'">×</button></div>'}).join('')+'</div>'
+      :'<p class="small">Add everything that went in: scan the pasta packet, search the mince, and so on. Use the weight of each before cooking.</p>')
+    +'<button class="btn block" data-act="radd">+ Add ingredient</button>'
+    +'<div><span class="flabel">Whole batch</span><div class="calc" id="rTotals" style="margin-top:6px">'+calcHtml(t)+'</div></div>'
+    +'<div class="fgrid2"><div class="field"><label for="rCooked">Cooked weight (g)</label><input id="rCooked" type="text" inputmode="decimal" autocomplete="off" value="'+esc(r.cooked_g||'')+'" placeholder="optional"></div>'
+    +'<div class="field"><label for="rServ">Serves</label><input id="rServ" type="text" inputmode="numeric" autocomplete="off" value="'+esc(r.servings||'')+'"></div></div>'
+    +'<p class="small">Weigh the finished pot and take off the pot’s weight. Then you can log any portion by weighing your bowl. Skip it and log by serves instead.</p>'
+    +'<button class="btn primary block big" data-act="rsave"'+(n?'':' disabled')+'>'+(r.id?'Save recipe':'Save and log a portion')+'</button>'
+    +(r.id?'':(n?'<button class="link" data-act="rclear">Start over</button>':''))
+    +'</section>';
+}
+function updateRecipeTotals(){var r=S.add&&S.add.recipe;if(!r)return;var el=$('#rTotals');if(el)el.innerHTML=calcHtml(recipeTotals(r));r.items.forEach(function(it,i){var sm=$('#rs-'+i);if(sm){var c=itemCalc(it);sm.textContent=kc(c.kcal)+' kcal · '+g(c.protein)+' g protein'}});var b=document.querySelector('[data-act="rsave"]');if(b)b.disabled=!r.items.length}
+function addIngredient(){
+  var a=S.add,f=a.picked,grams=num($('#fg').value);if(!grams||grams<=0){GD.toast('Enter how many grams went in.');return}
+  var r=draftRecipe();r.items.push({food_id:f.id||null,name:f.name,brand:f.brand||null,grams:r1(grams),kcal100:f.kcal,protein100:f.protein,carbs100:f.carbs,fat100:f.fat});
+  a.forRecipe=false;a.picked=null;a.tab='custom';a.newKind='recipe';saveDraft();renderAddBody();GD.toast('Added '+g(grams)+' g '+f.name+'.');
+}
+function saveRecipe(){
+  var a=S.add,r=draftRecipe();r.name=($('#rName').value||'').trim();
+  if(!r.name){GD.toast('Give the recipe a name.');$('#rName').focus();return}
+  if(!r.items.length){GD.toast('Add at least one ingredient.');return}
+  var t=recipeTotals(r),basis=recipeBasis(r),serv=num(r.servings);
+  if(!basis){GD.toast('Add the ingredient weights first.');return}
+  var per=function(v){return v==null?null:r1(v*100/basis)};
+  var food={id:r.id,source:'recipe',name:r.name,kcal:per(t.kcal),protein:per(t.protein),carbs:per(t.carbs),fat:per(t.fat),
+    serving_g:serv?r1(basis/serv):null,serving_label:serv?'1 of '+serv+' serves':null,recipe:{items:r.items,cooked_g:num(r.cooked_g),servings:serv}};
+  var editing=!!r.id,req=editing?GD.api('PATCH','/api/foods/'+encodeURIComponent(r.id),food):GD.api('POST','/api/foods',food);
+  var done=function(saved){LS.del('recipeDraft');a.recipe=null;a.newKind='food';if(saved.id)upsertRecent(saved);pick(saved);a.grams=saved.serving_g||r1(basis/4);renderAddBody()};
+  req.then(function(b){if(S.add!==a)return;GD.toast(editing?'Recipe updated.':'Recipe saved. Now log your portion.');done(b.food)},function(e){
+    if(S.add!==a)return;
+    if(e.offline&&!editing){food.id=null;GD.toast('Offline: the recipe saves with this entry.');done(food);return}
+    GD.toast(e.message);
+  });
 }
 function calcHtml(c){return '<div><b>'+kc(c.kcal)+'</b><span>kcal</span></div><div><b>'+g(c.protein)+'</b><span>protein</span></div><div><b>'+g(c.carbs)+'</b><span>carbs</span></div><div><b>'+g(c.fat)+'</b><span>fat</span></div>'}
 function setGrams(v,fromInput){
@@ -447,7 +509,14 @@ Object.assign(GD.ACT,{
   mdelno:function(){S.add.confirmMeal=null;renderAddBody()},
   mdelyes:function(t){var id=t.dataset.id;S.meals=(S.meals||[]).filter(function(m){return m.id!==id});LS.set('meals',S.meals);GD.queue('DELETE','/api/meals/'+id);S.add.confirmMeal=null;renderAddBody()},
   fclose:closeAdd,
-  fback:function(){var a=S.add;if(!a)return;if(a.picked){a.picked=null;renderAddBody()}else closeAdd()},
+  fback:function(){var a=S.add;if(!a)return;if(a.picked){a.picked=null;renderAddBody()}else if(a.forRecipe){stopCamera();a.forRecipe=false;a.tab='custom';a.newKind='recipe';renderAddBody()}else closeAdd()},
+  nkind:function(t){var a=S.add;if(a.newKind!=='recipe')captureCustom();a.newKind=t.dataset.v;a.msg='';renderAddBody()},
+  radd:function(){var a=S.add,r=draftRecipe(),el=$('#rName');if(el)r.name=el.value;saveDraft();a.forRecipe=true;setTab('recent')},
+  rdel:function(t){var r=draftRecipe();r.items.splice(+t.dataset.i,1);saveDraft();renderAddBody()},
+  rclear:function(){S.add.recipe={name:'',items:[],cooked_g:null,servings:4};LS.del('recipeDraft');renderAddBody()},
+  rsave:saveRecipe,
+  ringadd:addIngredient,
+  redit:function(){var a=S.add,f=a.picked;if(!f||!f.recipe)return;a.recipe={id:f.id,name:f.name,items:GD.clone(f.recipe.items||[]),cooked_g:f.recipe.cooked_g,servings:f.recipe.servings};a.newKind='recipe';a.tab='custom';a.picked=null;renderAddBody()},
   ftab:function(t){setTab(t.dataset.t)},
   fworld:function(){S.add.worldwide=true;doSearch(S.add.q)},
   fpick:function(t){var list=(S.add.lists||{})[t.dataset.g]||[];var f=list[+t.dataset.i];if(f)pick(f)},
@@ -478,6 +547,13 @@ document.addEventListener('submit',function(e){
 });
 document.addEventListener('change',function(e){if(e.target.id==='labelFile'&&e.target.files&&e.target.files[0])readLabel(e.target.files[0])});
 document.addEventListener('input',function(e){
+  var el=e.target;
+  if(S.add&&S.add.recipe&&(el.id==='rName'||el.id==='rCooked'||el.id==='rServ'||el.dataset.ri!==undefined)){
+    var r=S.add.recipe;
+    if(el.id==='rName')r.name=el.value;else if(el.id==='rCooked')r.cooked_g=num(el.value);else if(el.id==='rServ')r.servings=num(el.value);
+    else{var it=r.items[+el.dataset.ri];if(it)it.grams=num(el.value)}
+    saveDraft();updateRecipeTotals();return;
+  }
   if(e.target.id==='fg'&&S.add)setGrams(num(e.target.value),true);
   if(e.target.id==='eg')updateEditCalc();
 });

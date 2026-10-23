@@ -132,20 +132,29 @@ app.put('/api/settings', (req, res) => {
 });
 
 /* ---------- foods ---------- */
-const FOOD_COLS = 'id, barcode, source, source_id, name, brand, kcal, protein, carbs, fat, serving_g, serving_label, favourite, use_count, last_used, last_grams';
+const FOOD_COLS = 'id, barcode, source, source_id, name, brand, kcal, protein, carbs, fat, serving_g, serving_label, favourite, use_count, last_used, last_grams, recipe';
 const fq = {
   byId: db.prepare(`SELECT ${FOOD_COLS} FROM foods WHERE id = ?`),
   byBarcode: db.prepare(`SELECT ${FOOD_COLS} FROM foods WHERE barcode = ?`),
   bySource: db.prepare(`SELECT ${FOOD_COLS} FROM foods WHERE source = ? AND source_id = ?`),
   recent: db.prepare(`SELECT ${FOOD_COLS} FROM foods WHERE favourite = 1 OR last_used IS NOT NULL ORDER BY favourite DESC, last_used DESC LIMIT 40`),
   search: db.prepare(`SELECT ${FOOD_COLS} FROM foods WHERE name LIKE ? OR brand LIKE ? OR barcode = ? ORDER BY favourite DESC, use_count DESC, name LIMIT 25`),
-  insert: db.prepare(`INSERT INTO foods(id, barcode, source, source_id, name, brand, kcal, protein, carbs, fat, serving_g, serving_label, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
-  update: db.prepare(`UPDATE foods SET barcode = ?, name = ?, brand = ?, kcal = ?, protein = ?, carbs = ?, fat = ?, serving_g = ?, serving_label = ?, favourite = ?, updated_at = ? WHERE id = ?`),
+  insert: db.prepare(`INSERT INTO foods(id, barcode, source, source_id, name, brand, kcal, protein, carbs, fat, serving_g, serving_label, recipe, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+  update: db.prepare(`UPDATE foods SET barcode = ?, name = ?, brand = ?, kcal = ?, protein = ?, carbs = ?, fat = ?, serving_g = ?, serving_label = ?, favourite = ?, recipe = ?, updated_at = ? WHERE id = ?`),
   used: db.prepare('UPDATE foods SET use_count = use_count + 1, last_used = ?, last_grams = ? WHERE id = ?'),
   del: db.prepare('DELETE FROM foods WHERE id = ?'),
 };
-function foodOut(r) { return r ? { ...r, favourite: !!r.favourite } : null; }
+function foodOut(r) { return r ? { ...r, favourite: !!r.favourite, recipe: r.recipe ? parse(r.recipe) : null } : null; }
+// A recipe keeps its ingredients (per-100 g values and grams), the cooked weight and number of serves.
+function cleanRecipe(x) {
+  if (!x || typeof x !== 'object') return null;
+  const items = (Array.isArray(x.items) ? x.items : []).slice(0, 60).map((e) => ({
+    food_id: e.food_id || null, name: String(e.name || 'Ingredient').slice(0, 140), brand: e.brand ? String(e.brand).slice(0, 80) : null,
+    grams: r1(n(e.grams)), kcal100: r1(n(e.kcal100)), protein100: r1(n(e.protein100)), carbs100: r1(n(e.carbs100)), fat100: r1(n(e.fat100)),
+  })).filter((e) => e.grams > 0);
+  return { items, cooked_g: r1(n(x.cooked_g)), servings: r1(n(x.servings)) };
+}
 function cleanFood(b, base = {}) {
   const t = (v, max) => (v === undefined ? undefined : v === null ? null : String(v).trim().slice(0, max) || null);
   const out = {
@@ -160,19 +169,22 @@ function cleanFood(b, base = {}) {
 }
 // Save a food (custom, or picked from search) and return the stored row. Matches on barcode or source id.
 function upsertFood(b) {
-  const source = ['off', 'usda', 'afcd', 'custom'].includes(b.source) ? b.source : 'custom';
-  const sourceId = b.source_id ? String(b.source_id) : null;
-  let row = (b.id && fq.byId.get(b.id)) || (sourceId && source !== 'custom' && fq.bySource.get(source, sourceId)) || null;
+  const source = ['off', 'usda', 'afcd', 'custom', 'recipe'].includes(b.source) ? b.source : 'custom';
+  const own = source === 'custom' || source === 'recipe';
+  const sourceId = b.source_id && !own ? String(b.source_id) : null;
+  let row = (b.id && fq.byId.get(b.id)) || (sourceId && fq.bySource.get(source, sourceId)) || null;
+  const recipeJson = (base) => (b.recipe === undefined ? (base ? base.recipe : null) : b.recipe ? JSON.stringify(cleanRecipe(b.recipe)) : null);
   const c = cleanFood(b, row || {});
   if (!row && c.barcode) row = fq.byBarcode.get(c.barcode) || null;
   if (row) {
     const fav = b.favourite === undefined ? row.favourite : b.favourite ? 1 : 0;
-    fq.update.run(c.barcode, c.name || row.name, c.brand, c.kcal, c.protein, c.carbs, c.fat, c.serving_g, c.serving_label, fav, now(), row.id);
+    const raw = db.prepare('SELECT recipe FROM foods WHERE id = ?').get(row.id);
+    fq.update.run(c.barcode, c.name || row.name, c.brand, c.kcal, c.protein, c.carbs, c.fat, c.serving_g, c.serving_label, fav, recipeJson(raw), now(), row.id);
     return foodOut(fq.byId.get(row.id));
   }
   if (!c.name) throw Object.assign(new Error('A food needs a name.'), { status: 400 });
   const id = uid();
-  fq.insert.run(id, c.barcode, source, source === 'custom' ? null : sourceId, c.name, c.brand, c.kcal, c.protein, c.carbs, c.fat, c.serving_g, c.serving_label, now(), now());
+  fq.insert.run(id, c.barcode, source, sourceId, c.name, c.brand, c.kcal, c.protein, c.carbs, c.fat, c.serving_g, c.serving_label, recipeJson(null), now(), now());
   return foodOut(fq.byId.get(id));
 }
 

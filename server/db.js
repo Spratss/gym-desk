@@ -89,4 +89,7 @@ CREATE TABLE IF NOT EXISTS body (
 );
 `);
 
+// Columns added after the first release.
+try { db.exec('ALTER TABLE foods ADD COLUMN recipe TEXT'); } catch {}
+
 module.exports = { db, DATA_DIR };
