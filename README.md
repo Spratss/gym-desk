@@ -22,7 +22,7 @@ Every push to `main` runs the tests and publishes an image to `ghcr.io/spratss/g
    ```
 3. **Add the template.** Copy `unraid/gym-desk.xml` to the flash drive as `config/plugins/dockerMan/templates-user/my-gym-desk.xml`, either over the network (`\\<server>\flash\config\plugins\dockerMan\templates-user\`) or in the terminal with `nano /boot/config/plugins/dockerMan/templates-user/my-gym-desk.xml` and paste the file in.
 4. **Create the container.** Docker tab → **Add Container** → Template: **gym-desk** (under User templates). Fill in the USDA key if you have one → **Apply**.
-5. Open `http://<server-ip>:8085`. The first start downloads the Australian food database (about a minute). Plan → Settings shows when it's ready.
+5. Open `http://<server-ip>:8085`.
 6. Optional: edit the container and set **Icon URL** to `http://<server-ip>:8085/icons/icon-192.png`.
 
 **Without the template:** Add Container and fill in the same values by hand.
@@ -70,13 +70,13 @@ The camera only works over HTTPS, which the tunnel provides.
 | `USDA_API_KEY` | Free key from [api.data.gov](https://api.data.gov/signup/). Blank uses the shared demo key, which runs out quickly. |
 | `USDA` | `auto` (default): only search USDA when Australian results are thin. `always` or `off`. |
 | `OFF_COUNTRY` | Open Food Facts country filter for search (default `australia`). Barcode lookups are always worldwide. |
-| `AFCD` | Set to `off` to skip downloading the Australian food database. |
-| `AFCD_URL` | Override the FSANZ download link when a new release comes out. |
+| `AFCD` | Set to `off` to leave out the Australian food database. |
+| `AFCD_URL` | FSANZ download link used by **Update** in Settings, for when a new release comes out. |
 | `TZ` | Server time zone (Unraid sets this automatically). |
 
 ## Food data
 
-- **[Australian Food Composition Database](https://www.foodstandards.gov.au/science-data/food-nutrient-databases/afcd)** by Food Standards Australia New Zealand (CC BY 4.0): about 1,600 whole and basic foods with Australian values. Downloaded by the server on first start. If FSANZ moves the file, set `AFCD_URL` or upload the "Nutrient profiles" spreadsheet in Plan → Settings.
+- **[Australian Food Composition Database](https://www.foodstandards.gov.au/science-data/food-nutrient-databases/afcd)**, Food Standards Australia New Zealand (CC BY 4.0): 1,588 whole and basic foods with Australian values, per 100 g. Release 3 ships with the app (`server/data/afcd.json`), so nothing is downloaded. When FSANZ publishes a new release: Plan → Settings → Australian foods → **Update** (set `AFCD_URL` if the link changed) or **Upload** the "Nutrient profiles" spreadsheet. To update the bundled copy: `node scripts/build-afcd.js "<Nutrient profiles>.xlsx" "Release N"`.
 - **[Open Food Facts](https://world.openfoodfacts.org)** (ODbL): packaged products and barcodes, contributed by users. Big brands are mostly there; supermarket house brands less so. Products you add from the label are saved, so the next scan finds them.
 - **[USDA FoodData Central](https://fdc.nal.usda.gov)** (public domain): fallback for whole foods the Australian database doesn't have.
 

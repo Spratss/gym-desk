@@ -580,7 +580,7 @@ function afcdRow(){
   if(!a)txt='Checking…';
   else if(a.disabled)txt='Turned off (AFCD=off)';
   else if(a.loading)txt='Downloading from FSANZ…';
-  else if(a.count)txt=a.count.toLocaleString()+' foods from FSANZ'+(a.ok===false?'. Last update failed: '+esc(a.error):'');
+  else if(a.count)txt=a.count.toLocaleString()+' foods from FSANZ'+(a.release?' ('+esc(a.release)+')':'')+(a.ok===false?'. Last update failed: '+esc(a.error):'');
   else txt=a.error?'Not loaded: '+esc(a.error):'Not loaded yet';
   return '<div class="srow"><div><b>Australian foods</b><div class="small">'+txt+'</div></div><div class="chips" style="flex:none">'
     +(a&&!a.disabled&&!a.loading?'<button class="btn sm ghost" data-act="afcdretry">'+(a.count?'Update':'Retry')+'</button>':'')

@@ -43,3 +43,17 @@ test('refresh downloads from FSANZ and reports failures', async () => {
 test('rejects a spreadsheet without the right columns', () => {
   assert.throws(() => afcd.parseAfcd(fs.readFileSync(path.join(__dirname, 'fixtures', 'afcd-sample.xlsx')).subarray(0, 50)));
 });
+
+test('the bundled FSANZ release loads and common searches rank sensibly', () => {
+  const st = afcd.loadBundled();
+  assert.equal(st.count, 1588);
+  assert.equal(st.release, 'Release 3');
+  const first = (q) => (afcd.search(q)[0] || {}).name || '';
+  assert.match(first('milk'), /^Milk, cow/);
+  assert.match(first('eggs'), /^Egg, chicken, whole/);
+  assert.match(first('chicken breast'), /^Chicken, breast/);
+  assert.match(first('yogurt'), /^Yoghurt/);
+  assert.match(first('mince'), /^Beef, mince/);
+  const chicken = afcd.search('chicken breast raw')[0];
+  assert.ok(chicken.protein > 20 && chicken.kcal > 80 && chicken.kcal < 130, 'raw chicken breast values look right');
+});

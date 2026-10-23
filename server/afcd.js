@@ -1,7 +1,10 @@
 // Australian Food Composition Database (Food Standards Australia New Zealand), CC BY 4.0.
 // Downloaded by the server on first start and kept in the local database.
+const fs = require('node:fs');
+const path = require('node:path');
 const { db } = require('./db');
 const { readWorkbook } = require('./xlsx');
+const BUNDLED = path.join(__dirname, 'data', 'afcd.json');
 
 const AFCD_URL = process.env.AFCD_URL || 'https://www.foodstandards.gov.au/sites/default/files/2025-12/AFCD%20Release%203%20-%20Nutrient%20profiles.xlsx';
 const DISABLED = process.env.AFCD === 'off';
@@ -12,10 +15,12 @@ CREATE TABLE IF NOT EXISTS ref_foods (
   key TEXT NOT NULL,
   name TEXT NOT NULL,
   kcal REAL, protein REAL, carbs REAL, fat REAL, fibre REAL,
+  ord INTEGER,
   PRIMARY KEY (source, key)
 );
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `);
+try { db.exec('ALTER TABLE ref_foods ADD COLUMN ord INTEGER'); } catch {} // older databases
 
 const getMeta = db.prepare('SELECT value FROM meta WHERE key = ?');
 const putMeta = db.prepare('INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
@@ -69,14 +74,14 @@ function parseAfcd(buf) {
 }
 
 function store(parsed, from) {
-  const ins = db.prepare('INSERT INTO ref_foods(source, key, name, kcal, protein, carbs, fat, fibre) VALUES (\'afcd\', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(source, key) DO UPDATE SET name = excluded.name, kcal = excluded.kcal, protein = excluded.protein, carbs = excluded.carbs, fat = excluded.fat, fibre = excluded.fibre');
+  const ins = db.prepare('INSERT INTO ref_foods(source, key, name, kcal, protein, carbs, fat, fibre, ord) VALUES (\'afcd\', ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(source, key) DO UPDATE SET name = excluded.name, kcal = excluded.kcal, protein = excluded.protein, carbs = excluded.carbs, fat = excluded.fat, fibre = excluded.fibre, ord = excluded.ord');
   db.exec('BEGIN');
   try {
     db.exec("DELETE FROM ref_foods WHERE source = 'afcd'");
-    for (const f of parsed.foods) ins.run(f.key, f.name, f.kcal, f.protein, f.carbs, f.fat, f.fibre);
+    parsed.foods.forEach((f, i) => ins.run(f.key, f.name, f.kcal, f.protein, f.carbs, f.fat, f.fibre, i));
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
-  const st = { ok: true, count: parsed.foods.length, sheet: parsed.sheet, from, at: new Date().toISOString() };
+  const st = { ok: true, count: parsed.foods.length, sheet: parsed.sheet, release: parsed.release || null, from, at: new Date().toISOString() };
   putMeta.run('afcd', JSON.stringify(st));
   return st;
 }
@@ -111,21 +116,46 @@ function status() {
   st.loading = !!running;
   return st;
 }
-function ensure() { if (!DISABLED && count.get().n === 0) refresh(); }
+// The app ships with a parsed copy of the current release, so it works on first start with no download.
+function loadBundled() {
+  const b = JSON.parse(fs.readFileSync(BUNDLED, 'utf8'));
+  const foods = b.foods.map(([key, name, kcal, protein, carbs, fat, fibre]) => ({ key, name, kcal, protein, carbs, fat, fibre }));
+  return store({ foods, sheet: b.sheet, release: b.release }, 'bundled');
+}
+function ensure() {
+  if (DISABLED || count.get().n > 0) return;
+  try { const st = loadBundled(); console.log(`Australian foods: loaded ${st.count} (${st.release}, bundled)`); }
+  catch (e) { console.warn('Australian foods: bundled copy unreadable (' + e.message + '), downloading'); refresh(); }
+}
 
-const searchStmt = db.prepare("SELECT key, name, kcal, protein, carbs, fat FROM ref_foods WHERE source = 'afcd' AND name LIKE ? LIMIT 400");
-// Every word must match; foods whose name starts with the first word, and raw/plain forms, come first.
+const searchStmt = db.prepare("SELECT key, name, kcal, protein, carbs, fat, ord FROM ref_foods WHERE source = 'afcd' AND name LIKE ? ORDER BY ord LIMIT 600");
+const SYNONYMS = { yogurt: 'yoghurt', yoghurts: 'yoghurt', mincemeat: 'mince', minced: 'mince', bell: 'capsicum', zucchini: 'zucchini', courgette: 'zucchini', prawns: 'prawn', shrimp: 'prawn' };
+function variants(w) {
+  w = SYNONYMS[w] || w;
+  const out = [w];
+  if (w.length > 3 && w.endsWith('es')) out.push(w.slice(0, -2));
+  if (w.length > 3 && w.endsWith('s')) out.push(w.slice(0, -1));
+  return out;
+}
+const esc = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Every word must match (plural or synonym is fine). Names whose first part is the first word rank highest
+// ("Milk, cow" before "Milkfish"), then whole-word matches; FSANZ's own order breaks ties.
 function search(term) {
-  const words = String(term).toLowerCase().split(/[\s,]+/).filter((w) => w.length > 1).slice(0, 6);
+  const words = String(term).toLowerCase().split(/[\s,]+/).filter((w) => w.length > 1).slice(0, 6).map(variants);
   if (!words.length) return [];
-  const rows = searchStmt.all('%' + words[0].replace(/[%_]/g, '') + '%').filter((r) => { const n = r.name.toLowerCase(); return words.every((w) => n.includes(w)); });
+  const rows = searchStmt.all('%' + words[0][words[0].length - 1].replace(/[%_]/g, '') + '%')
+    .filter((r) => { const n = r.name.toLowerCase(); return words.every((vs) => vs.some((w) => n.includes(w))); });
   const rank = (r) => {
-    const n = r.name.toLowerCase();
+    const n = r.name.toLowerCase(), first = n.split(',')[0].trim();
     let s = 0;
-    if (n.startsWith(words[0])) s -= 10;
-    if (new RegExp('\\b' + words[0].replace(/[^a-z0-9]/g, '')).test(n)) s -= 3;
-    if (/\braw\b|\bplain\b|\bcooked\b|\bboiled\b|\bgrilled\b/.test(n)) s -= 1;
-    return s + n.length / 100;
+    if (words[0].some((w) => first === w || first === w + 's')) s -= 20;
+    else if (words[0].some((w) => new RegExp('^' + esc(w) + '\\b').test(n))) s -= 10;
+    const lead = n.split(',').slice(0, 2).join(',');
+    for (const vs of words) {
+      if (vs.some((w) => new RegExp('\\b' + esc(w) + '\\b').test(lead))) s -= 5;
+      else if (vs.some((w) => new RegExp('\\b' + esc(w) + '\\b').test(n))) s -= 3;
+    }
+    return s + r.ord / 10000;
   };
   return rows.sort((a, b) => rank(a) - rank(b)).slice(0, 20).map((r) => ({
     source: 'afcd', source_id: r.key, barcode: null, name: r.name, brand: null,
@@ -133,4 +163,4 @@ function search(term) {
   }));
 }
 
-module.exports = { parseAfcd, refresh, importFile, status, ensure, search, AFCD_URL };
+module.exports = { parseAfcd, refresh, importFile, loadBundled, status, ensure, search, AFCD_URL };
