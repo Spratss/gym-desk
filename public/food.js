@@ -69,7 +69,8 @@ GD.views.food=function(){
   var tot={kcal:sum(entries,'kcal'),protein:sum(entries,'protein'),carbs:sum(entries,'carbs'),fat:sum(entries,'fat')};
   h+='<section class="card macros">'+macro('Protein',tot.protein,t.protein,'g','prot')+macro('Calories',tot.kcal,t.kcal,'kcal','kcal')
     +'<div class="macro-minor"><span>Carbs <b>'+g(tot.carbs)+'</b>'+(t.carbs?' / '+t.carbs:'')+' g</span><span>Fat <b>'+g(tot.fat)+'</b>'+(t.fat?' / '+t.fat:'')+' g</span><button class="link" data-act="copen" style="margin-left:auto;min-height:0;padding:0">Targets</button></div></section>';
-  h+='<div class="food-actions"><button class="btn primary" data-act="fadd" data-t="scan">'+SCAN_ICON+'Scan</button><button class="btn" data-act="fadd" data-t="search">Search</button><button class="btn" data-act="fquick">Quick add</button></div>';
+  h+='<div class="food-actions"><button class="btn primary" data-act="fadd" data-t="scan">'+SCAN_ICON+'Scan</button><button class="btn" data-act="fadd" data-t="search">Search</button><button class="btn" data-act="fquick">Quick add</button></div>'
+    +'<button class="link" data-act="frecipe" style="justify-self:start;margin-top:-12px">Cooked a batch? Make a recipe</button>';
   h+=GD.coach.cards(date,entries,tot,t);
   var prevEntries=S.foodDays[prev]||[];
   MEALS.forEach(function(m){
@@ -501,6 +502,7 @@ Object.assign(GD.ACT,{
   fgo:function(t){S.foodDate=t.dataset.date;GD.render()},
   fadd:function(t){openAdd(t.dataset.meal,t.dataset.t)},
   fquick:quickSheet,
+  frecipe:function(){openAdd(defaultMeal(),'custom');S.add.newKind='recipe';renderAddBody()},
   fcopy:function(t){copyMeal(t.dataset.meal)},
   fsavemeal:function(t){saveMealSheet(t.dataset.meal)},
   msave:saveMeal,
