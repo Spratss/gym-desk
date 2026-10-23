@@ -418,16 +418,26 @@ app.post('/api/import', (req, res) => {
 });
 
 /* ---------- app shell ---------- */
+// The page and service worker point at the app's code with ?v=<version>, so every release has new
+// addresses and no browser or proxy cache can keep serving an old copy. The page itself is never cached.
+const ASSETS = /(["'])\/(app\.js|food\.js|coach\.js|styles\.css)\1/g;
+const versioned = (text) => text.replace(ASSETS, (m, q, f) => `${q}/${f}?v=${VERSION}${q}`);
+const INDEX_HTML = versioned(fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8'));
+const SW_JS = versioned(fs.readFileSync(path.join(PUBLIC_DIR, 'sw.js'), 'utf8')).replace(/const CACHE = '[^']*'/, `const CACHE = 'gymdesk-${VERSION}'`);
+const sendIndex = (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.type('html').send(INDEX_HTML); };
+app.get(['/', '/index.html'], sendIndex);
+app.get('/sw.js', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.type('application/javascript').send(SW_JS); });
 app.use(express.static(PUBLIC_DIR, {
+  index: false,
   setHeaders(res, file) {
     if (/\.(woff2|png|svg)$/.test(file)) res.setHeader('Cache-Control', 'public, max-age=2592000');
+    else if (res.req && res.req.query && res.req.query.v) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     else res.setHeader('Cache-Control', 'no-cache');
   },
 }));
 app.use((req, res, next) => {
-  if (req.method !== 'GET' || req.path.startsWith('/api/')) return next();
-  res.setHeader('Cache-Control', 'no-cache');
-  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+  if ((req.method !== 'GET' && req.method !== 'HEAD') || req.path.startsWith('/api/')) return next();
+  sendIndex(req, res);
 });
 app.use('/api', (req, res) => bad(res, 'Not found.', 404));
 app.use((err, req, res, next) => {

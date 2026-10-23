@@ -2,6 +2,8 @@
 (function(){
 'use strict';
 var GD=window.GD={};
+// This copy of the app's version, from the ?v= on its own script address.
+GD.clientVersion=(function(){try{return new URL(document.currentScript.src).searchParams.get('v')||''}catch(e){return ''}})();
 var DAYS=['push','pull','legs'];
 var DAY_NAME={push:'Push',pull:'Pull',legs:'Legs'};
 var DAY_FOCUS={push:'Chest · Shoulders · Triceps',pull:'Back · Biceps',legs:'Legs · Core'};
@@ -572,7 +574,7 @@ function settingsHtml(){
     +'<div class="srow"><div><b>Backup</b><div class="small">Everything in one JSON file</div></div><a class="btn sm ghost" href="/api/export" download>Download</a></div>'
     +'<div class="srow"><div><b>Import</b><div class="small">A Gym Desk backup or export file</div></div><label class="btn sm ghost" for="importFile">Choose file</label><input id="importFile" type="file" accept="application/json,.json" hidden></div>'
     +(GD.me&&GD.me.passwordRequired?'<div class="srow"><div><b>Sign out</b><div class="small">On this device</div></div><button class="btn sm ghost" data-act="logout">Sign out</button></div>':'')
-    +'</div><p class="small">Gym Desk '+esc((GD.me&&GD.me.version)||'')+'</p></section>';
+    +'</div><p class="small">Gym Desk '+esc((GD.me&&GD.me.version)||GD.clientVersion||'')+(GD.me&&GD.clientVersion&&GD.me.version!==GD.clientVersion?' · this phone has '+esc(GD.clientVersion)+', close and reopen to update':'')+'</p></section>';
 }
 function afcdRow(){
   if(S.afcd===undefined){S.afcd=null;api('GET','/api/afcd').then(function(st){S.afcd=st;if(S.tab==='plan')render(true)},function(){})}
@@ -831,6 +833,8 @@ window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();S.i
 function boot(){
   api('GET','/api/me').then(function(me){
     GD.me=me;
+    // The server has a newer release than this copy: reload once to pick it up (not mid-workout).
+    if(me.version&&GD.clientVersion&&me.version!==GD.clientVersion&&!S.active&&LS.get('reloadedFor','')!==me.version){LS.set('reloadedFor',me.version);location.reload();return}
     if(me.passwordRequired&&!me.authed){needLogin();return}
     loadState();kick();
     if(GD.onBoot)GD.onBoot();

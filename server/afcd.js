@@ -67,7 +67,9 @@ function parseAfcd(buf) {
       foods.push({ key, name, kcal: r1(kcal), protein: r1(num(r[c.protein])), carbs: c.carbs >= 0 ? r1(num(r[c.carbs])) : null,
         fat: c.fat >= 0 ? r1(num(r[c.fat])) : null, fibre: c.fibre >= 0 ? r1(num(r[c.fibre])) : null });
     }
-    if (foods.length) return { foods, sheet: sh.name };
+    const title = sh.rows.slice(0, hi).map((r) => r.join(' ')).join(' ');
+    const rel = /release\s*(\d+)/i.exec(title + ' ' + sh.name);
+    if (foods.length) return { foods, sheet: sh.name, release: rel ? 'Release ' + rel[1] : null };
   }
   throw new Error('Couldn’t find the food name, energy and protein columns in that spreadsheet.');
   function score(n) { n = norm(n); return (/100 ?g/.test(n) ? 4 : 0) + (/solid/.test(n) ? 2 : 0) - (/ml\b|liquid/.test(n) && !/solid/.test(n) ? 3 : 0) - (/note|read ?me|about|key|info/.test(n) ? 5 : 0); }

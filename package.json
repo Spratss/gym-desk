@@ -1,6 +1,6 @@
 {
   "name": "gym-desk",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "description": "Self-hosted gym and food tracker",
   "main": "server/index.js",
   "scripts": {

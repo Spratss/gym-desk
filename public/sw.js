@@ -33,8 +33,8 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin || url.pathname.startsWith('/api/') || url.pathname === '/healthz') return;
   if (e.request.mode === 'navigate') { e.respondWith(networkFirst(e.request, '/')); return; }
-  if (/\.(woff2|png|svg)$/.test(url.pathname)) {
-    // Fonts and icons never change: saved copy first.
+  if (/\.(woff2|png|svg)$/.test(url.pathname) || url.searchParams.has('v')) {
+    // Fonts, icons and versioned code never change at the same address: saved copy first.
     e.respondWith(caches.match(e.request).then((hit) => hit || fetch(e.request).then((res) => save(e.request, res))));
     return;
   }
