@@ -173,6 +173,7 @@ function upsertLocal(sess){var i=S.sessions.findIndex(function(x){return x.id===
 function saveActive(){if(!S.active)return;S.active.updatedAt=Date.now();var c=clone(S.active);upsertLocal(c);queue('PUT','/api/sessions/'+encodeURIComponent(c.id),c);cacheState()}
 function savePlan(day){var p=S.plan[day];if(!p)return;p.updatedAt=Date.now();queue('PUT','/api/plan/'+day,clone(p));cacheState()}
 function saveSettings(){if(!S.settings)S.settings={weeklyTarget:3,bikeDefault:15,bikeMin:10,bikeMax:20};S.settings.updatedAt=Date.now();queue('PUT','/api/settings',clone(S.settings));cacheState()}
+function setSettings(obj,noRender){if(!S.settings)S.settings={weeklyTarget:3,bikeDefault:15,bikeMin:10,bikeMax:20};Object.assign(S.settings,obj);saveSettings();if(!noRender)render()}
 function setSetting(k,v,noRender){if(!S.settings)S.settings={weeklyTarget:3,bikeDefault:15,bikeMin:10,bikeMax:20};S.settings[k]=v;saveSettings();if(!noRender)render()}
 
 /* ---------- loading ---------- */
@@ -562,14 +563,28 @@ function settingsHtml(){
   return '<section class="blk"><h3 class="sec">Settings</h3><div class="card settings">'
     +'<div class="srow"><div><b>Weekly target</b><div class="small">Training sessions per week</div></div><div class="step mini"><button data-act="tgt-" aria-label="Lower target">−</button><output>'+weeklyTarget()+'</output><button data-act="tgt+" aria-label="Raise target">+</button></div></div>'
     +'<div class="srow"><div><b>Bike finisher</b><div class="small">Default minutes on the static bike</div></div><div class="step mini"><button data-act="bdef-" aria-label="Fewer minutes">−</button><output>'+bikeDef()+'</output><button data-act="bdef+" aria-label="More minutes">+</button></div></div>'
+    +'<div class="srow"><div><b>Work out targets</b><div class="small">From height, weight, age, activity and goal</div></div><button class="btn sm primary" data-act="copen">Open</button></div>'
     +'<div class="srow"><label for="setKcal"><b>Calorie target</b><span class="small" style="display:block">kcal a day</span></label><div class="step mini wide"><input id="setKcal" data-setting="kcalTarget" type="text" inputmode="numeric" value="'+esc(s.kcalTarget||'')+'" placeholder="–"></div></div>'
     +'<div class="srow"><label for="setProt"><b>Protein target</b><span class="small" style="display:block">grams a day</span></label><div class="step mini wide"><input id="setProt" data-setting="proteinTarget" type="text" inputmode="numeric" value="'+esc(s.proteinTarget||'')+'" placeholder="–"></div></div>'
     +'<div class="srow"><label for="soundT"><b>Beep when rest ends</b><span class="small" style="display:block">This phone only</span></label><input type="checkbox" id="soundT" style="width:22px;height:22px;accent-color:var(--day)"'+(S.sound?' checked':'')+'></div>'
     +(S.installPrompt?'<div class="srow"><div><b>Install app</b><div class="small">Adds Gym Desk to your home screen</div></div><button class="btn sm primary" data-act="install">Install</button></div>':'')
+    +afcdRow()
     +'<div class="srow"><div><b>Backup</b><div class="small">Everything in one JSON file</div></div><a class="btn sm ghost" href="/api/export" download>Download</a></div>'
     +'<div class="srow"><div><b>Import</b><div class="small">A Gym Desk backup or export file</div></div><label class="btn sm ghost" for="importFile">Choose file</label><input id="importFile" type="file" accept="application/json,.json" hidden></div>'
     +(GD.me&&GD.me.passwordRequired?'<div class="srow"><div><b>Sign out</b><div class="small">On this device</div></div><button class="btn sm ghost" data-act="logout">Sign out</button></div>':'')
     +'</div><p class="small">Gym Desk '+esc((GD.me&&GD.me.version)||'')+'</p></section>';
+}
+function afcdRow(){
+  if(S.afcd===undefined){S.afcd=null;api('GET','/api/afcd').then(function(st){S.afcd=st;if(S.tab==='plan')render(true)},function(){})}
+  var a=S.afcd,txt;
+  if(!a)txt='Checking…';
+  else if(a.disabled)txt='Turned off (AFCD=off)';
+  else if(a.loading)txt='Downloading from FSANZ…';
+  else if(a.count)txt=a.count.toLocaleString()+' foods from FSANZ'+(a.ok===false?'. Last update failed: '+esc(a.error):'');
+  else txt=a.error?'Not loaded: '+esc(a.error):'Not loaded yet';
+  return '<div class="srow"><div><b>Australian foods</b><div class="small">'+txt+'</div></div><div class="chips" style="flex:none">'
+    +(a&&!a.disabled&&!a.loading?'<button class="btn sm ghost" data-act="afcdretry">'+(a.count?'Update':'Retry')+'</button>':'')
+    +'<label class="btn sm ghost" for="afcdFile">Upload</label><input id="afcdFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></div></div>';
 }
 function onPlanField(el){
   var p=S.plan[S.planDay];if(!p)return;var e=p.exercises.find(function(x){return x.id===el.dataset.id});if(!e)return;
@@ -736,6 +751,7 @@ var ACT=GD.ACT={
   ldelyes:function(t){var id=t.dataset.id;queue('DELETE','/api/sessions/'+encodeURIComponent(id));S.sessions=S.sessions.filter(function(s){return s.id!==id});if(S.summary===id)S.summary=null;S.confirmDel=null;S.logOpen=null;cacheState();render();toast('Session deleted.')},
   bwsave:saveBody,
   install:function(){var p=S.installPrompt;if(!p)return;p.prompt();p.userChoice.finally(function(){S.installPrompt=null;render()})},
+  afcdretry:function(){S.afcd=Object.assign({},S.afcd,{loading:true});render();api('POST','/api/afcd/refresh').then(function(st){S.afcd=st;render();toast(st.ok?'Loaded '+st.count+' Australian foods.':'Couldn’t update: '+st.error)},function(e){S.afcd=undefined;render();toast(e.message)})},
   logout:function(){api('POST','/api/logout').finally(function(){S.phase='login';render()})},
   syncinfo:function(){
     var msg=!S.online?(navigator.onLine?'Gym Desk can’t reach your server. If you sign in through Cloudflare, your sign-in may have expired: reload to sign in again.':'You’re offline. Changes are kept on this phone and sent when you’re back online.'):outbox.length?'Sending '+outbox.length+' change'+(outbox.length===1?'':'s')+'…':'Everything is saved to your server.';
@@ -785,6 +801,12 @@ document.addEventListener('change',function(e){
   if(el.dataset&&el.dataset.pf){onPlanField(el);return}
   if(el.id==='soundT'){S.sound=el.checked;LS.set('sound',S.sound);if(S.sound){primeAudio();beep()}}
   if(el.id==='importFile'&&el.files&&el.files[0])importFile(el.files[0]);
+  if(el.id==='afcdFile'&&el.files&&el.files[0]){
+    toast('Uploading…');
+    fetch('/api/afcd/upload',{method:'POST',headers:{'content-type':'application/octet-stream'},body:el.files[0],credentials:'same-origin'})
+      .then(function(r){return r.json().then(function(b){if(!r.ok)throw new Error(b.error||'Upload failed.');S.afcd=b;render();toast('Loaded '+b.count+' Australian foods.')})})
+      .catch(function(e){toast(e.message||'Upload failed.')});
+  }
 });
 document.addEventListener('submit',function(e){
   if(e.target.id!=='loginForm')return;e.preventDefault();
@@ -829,6 +851,6 @@ document.addEventListener('DOMContentLoaded',function(){
 
 /* shared with food.js */
 Object.assign(GD,{$:$,esc:esc,LS:LS,api:api,queue:queue,pending:pending,toast:toast,dkey:dkey,parseKey:parseKey,fmtDay:fmtDay,addDays:addDays,monday:monday,
-  num:num,r1:r1,kg:kg,clone:clone,rid:rid,debounce:debounce,haptic:haptic,openSheet:openSheet,closeSheet:closeSheet,setSetting:setSetting,st:st,
+  num:num,r1:r1,kg:kg,clone:clone,rid:rid,debounce:debounce,haptic:haptic,openSheet:openSheet,closeSheet:closeSheet,setSetting:setSetting,setSettings:setSettings,st:st,
   loadBody:loadBody,WD:WD,MO:MO,outbox:function(){return outbox}});
 })();

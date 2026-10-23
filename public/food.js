@@ -14,13 +14,14 @@ S.foodLoaded={};
 S.weekTotals={};
 S.recent=LS.get('recentFoods',null);
 S.add=null;
+S.meals=LS.get('meals',null);
 
 /* ---------- helpers ---------- */
 function today(){return GD.dkey(new Date())}
 function g(v){return v==null?'–':v<10?String(r1(v)):String(Math.round(v))}
 function kc(v){return v==null?'–':String(Math.round(v))}
 function defaultMeal(){var h=new Date().getHours();return h>=4&&h<11?'breakfast':h<15?'lunch':h>=17&&h<21?'dinner':'snacks'}
-function targets(){var s=GD.st();return {kcal:s.kcalTarget||null,protein:s.proteinTarget||null}}
+function targets(){var s=GD.st();return {kcal:s.kcalTarget||null,protein:s.proteinTarget||null,carbs:s.carbTarget||null,fat:s.fatTarget||null}}
 function sum(list,k){return list.reduce(function(a,e){return a+(e[k]||0)},0)}
 function calc(f,grams){var x=function(k){return f[k]==null||grams==null?null:r1(f[k]*grams/100)};return {kcal:x('kcal'),protein:x('protein'),carbs:x('carbs'),fat:x('fat')}}
 function hasNutrition(f){return f&&(f.kcal!=null||f.protein!=null)}
@@ -49,27 +50,33 @@ function loadWeek(date){
   var mon=GD.monday(GD.parseKey(date)),from=GD.dkey(mon),to=GD.dkey(GD.addDays(mon,6));
   GD.api('GET','/api/food/totals?from='+from+'&to='+to).then(function(b){(b.days||[]).forEach(function(d){S.weekTotals[d.date]=d});rerender()},function(){});
 }
-function loadRecent(){return GD.api('GET','/api/foods/recent').then(function(b){S.recent=b.foods||[];LS.set('recentFoods',S.recent);if(S.add&&S.add.tab==='recent'&&!S.add.picked)renderAddBody()},function(){})}
+var recentLoading=false;
+function loadRecent(){if(recentLoading)return;recentLoading=true;return GD.api('GET','/api/foods/recent').then(function(b){recentLoading=false;S.recent=b.foods||[];LS.set('recentFoods',S.recent);if(S.add){if(S.add.tab==='recent'&&!S.add.picked)renderAddBody()}else rerender()},function(){recentLoading=false;if(S.recent==null)S.recent=[]})}
 function rerender(){if(S.tab==='food')GD.render(true)}
+function loadMeals(){return GD.api('GET','/api/meals').then(function(b){S.meals=b.meals||[];LS.set('meals',S.meals);if(S.add&&S.add.tab==='recent'&&!S.add.picked)renderAddBody()},function(){})}
 
 /* ---------- day view ---------- */
 GD.views.food=function(){
-  var date=S.foodDate;loadDay(date);if(!S.weekTotals.__loaded||S.weekTotals.__week!==weekKey(date)){S.weekTotals.__loaded=1;S.weekTotals.__week=weekKey(date);loadWeek(date)}
+  var date=S.foodDate,prev=GD.dkey(GD.addDays(GD.parseKey(date),-1));loadDay(date);loadDay(prev);if(!S.weekTotals.__loaded||S.weekTotals.__week!==weekKey(date)){S.weekTotals.__loaded=1;S.weekTotals.__week=weekKey(date);loadWeek(date)}
   if(S.body==null)GD.loadBody();
+  if(S.recent==null)loadRecent();
   var entries=S.foodDays[date],t=targets(),isToday=date===today();
   var d=GD.parseKey(date),label=isToday?'Today':date===GD.dkey(GD.addDays(new Date(),-1))?'Yesterday':GD.WD[d.getDay()];
   var h='<div class="daynav"><button class="arrow" data-act="fday" data-d="-1" aria-label="Previous day">‹</button><div><h1>'+label+'</h1><p>'+GD.fmtDay(date)+'</p></div><button class="arrow" data-act="fday" data-d="1" aria-label="Next day"'+(isToday?' disabled':'')+'>›</button></div>';
   if(!entries)return h+'<div class="skel">Loading food…</div>';
   var tot={kcal:sum(entries,'kcal'),protein:sum(entries,'protein'),carbs:sum(entries,'carbs'),fat:sum(entries,'fat')};
   h+='<section class="card macros">'+macro('Protein',tot.protein,t.protein,'g','prot')+macro('Calories',tot.kcal,t.kcal,'kcal','kcal')
-    +'<div class="macro-minor"><span>Carbs <b>'+g(tot.carbs)+' g</b></span><span>Fat <b>'+g(tot.fat)+' g</b></span><span>'+entries.length+' item'+(entries.length===1?'':'s')+'</span></div></section>';
+    +'<div class="macro-minor"><span>Carbs <b>'+g(tot.carbs)+'</b>'+(t.carbs?' / '+t.carbs:'')+' g</span><span>Fat <b>'+g(tot.fat)+'</b>'+(t.fat?' / '+t.fat:'')+' g</span><button class="link" data-act="copen" style="margin-left:auto;min-height:0;padding:0">Targets</button></div></section>';
   h+='<div class="food-actions"><button class="btn primary" data-act="fadd" data-t="scan">'+SCAN_ICON+'Scan</button><button class="btn" data-act="fadd" data-t="search">Search</button><button class="btn" data-act="fquick">Quick add</button></div>';
-  if(!t.kcal||!t.protein)h+=targetCard(t);
+  h+=GD.coach.cards(date,entries,tot,t);
+  var prevEntries=S.foodDays[prev]||[];
   MEALS.forEach(function(m){
-    var list=entries.filter(function(e){return e.meal===m});
+    var list=entries.filter(function(e){return e.meal===m}),yest=prevEntries.filter(function(e){return e.meal===m});
     h+='<section class="meal"><div class="meal-head"><h3>'+MEAL_NAME[m]+'</h3><span class="meal-sum">'+(list.length?kc(sum(list,'kcal'))+' kcal · '+g(sum(list,'protein'))+' g protein':'')+'</span></div>'
       +list.map(entryHtml).join('')
-      +'<button class="link meal-add" data-act="fadd" data-meal="'+m+'" data-t="recent">+ Add to '+MEAL_NAME[m].toLowerCase()+'</button></section>';
+      +(!list.length&&yest.length?'<button class="copy" data-act="fcopy" data-meal="'+m+'"><span class="row-name">Same as '+(date===today()?'yesterday':'the day before')+'<small>'+esc(yest.map(function(e){return e.name}).join(', '))+'</small></span><span class="entry-nums">'+kc(sum(yest,'kcal'))+' kcal<small>'+g(sum(yest,'protein'))+' g protein</small></span></button>':'')
+      +'<div class="meal-links"><button class="link" data-act="fadd" data-meal="'+m+'" data-t="recent">+ Add to '+MEAL_NAME[m].toLowerCase()+'</button>'
+      +(list.length?'<button class="link" data-act="fsavemeal" data-meal="'+m+'">Save as meal</button>':'')+'</div></section>';
   });
   h+=weekStrip(date,t);
   return h;
@@ -81,15 +88,6 @@ function macro(name,val,tgt,unit,cls){
   return '<div class="macro"><div class="macro-top"><span class="macro-name">'+name+'</span><span class="macro-left'+(tgt&&left<=0&&cls==='prot'?' hit':'')+'">'+leftTxt+'</span></div>'
     +'<div class="macro-val"><b>'+(unit==='g'?g(val):kc(val))+'</b><span>'+(tgt?'of '+tgt+' '+unit:unit)+'</span></div>'
     +'<div class="mbar '+cls+'"><i'+(over?' class="over"':'')+' style="width:'+pct.toFixed(1)+'%"></i></div></div>';
-}
-function targetCard(t){
-  var w=latestWeight(),sug=w?Math.round(w*1.6/5)*5:null;
-  return '<section class="card targets"><h3 class="sec">Set your daily targets</h3>'
-    +'<p class="small">'+(sug?'Protein: about 1.6 g per kg of bodyweight, so roughly '+sug+' g at '+GD.kg(w)+' kg. ':'Protein: about 1.6 g per kg of bodyweight. Log your weight in Log and I’ll work it out. ')
-    +'Calories: not sure? Log a normal week first. Your average is roughly maintenance; for building muscle, aim 200–300 above it.</p>'
-    +'<div class="fgrid2"><div class="field"><label for="tProt">Protein (g)</label><input id="tProt" type="text" inputmode="numeric" value="'+esc(t.protein||sug||'')+'"></div>'
-    +'<div class="field"><label for="tKcal">Calories (kcal)</label><input id="tKcal" type="text" inputmode="numeric" value="'+esc(t.kcal||'')+'" placeholder="e.g. 2600"></div></div>'
-    +'<button class="btn primary" data-act="tsave">Save targets</button></section>';
 }
 function entryHtml(e){
   return '<button class="entry" data-act="fedit" data-id="'+esc(e.id)+'"><span class="row-name">'+esc(e.name)+'<small>'+(e.brand?esc(e.brand)+' · ':'')+(e.grams!=null?g(e.grams)+' g':'quick add')+'</small></span>'
@@ -104,7 +102,7 @@ function weekStrip(date,t){
     var pct=t.protein?Math.min(100,p/t.protein*100):0;
     h+='<button class="pday'+(d===date?' sel':'')+'" data-act="fgo" data-date="'+d+'"'+(future?' disabled':'')+' aria-label="'+GD.fmtDay(d)+': '+g(p)+' g protein"><div class="pcol'+(hit?' hit':'')+'"><i style="height:'+pct.toFixed(0)+'%"></i></div><span>'+GD.WD[GD.addDays(mon,i).getDay()].charAt(0)+'</span></button>';
   }
-  return h+'</div>'+(t.protein?'<p class="small">Hit your protein on '+hits+' of 7 days.</p>':'')+'</section>';
+  return h+'</div>'+(t.protein?'<p class="small">Hit your protein on '+hits+' of 7 days.</p>':'')+GD.coach.progressNote()+'</section>';
 }
 
 /* ---------- adding food ---------- */
@@ -117,6 +115,7 @@ function openAdd(meal,tab){
   sh.hidden=false;document.body.style.overflow='hidden';
   try{history.pushState({gdAdd:true},'')}catch(e){}
   if(S.recent==null||tab==='recent')loadRecent();
+  loadMeals();
   renderAddBody();
 }
 function closeAdd(fromPop){stopCamera();S.add=null;var sh=$('#sheet');sh.hidden=true;sh.innerHTML='';document.body.style.overflow='';
@@ -144,18 +143,27 @@ function resRow(f,i,group){
   return '<button class="res" data-act="fpick" data-g="'+group+'" data-i="'+i+'"><span class="row-name">'+(f.favourite?'<span style="color:var(--gold-ink)">★</span> ':'')+esc(f.name)+(sub?'<small>'+esc(sub)+'</small>':'')+'</span>'
     +'<span class="res-nums">'+(f.kcal!=null?kc(f.kcal)+' kcal':'no kcal')+'<small>'+(f.protein!=null?g(f.protein)+' g P':'')+' /100 g</small></span></button>';
 }
+function mealsHtml(){
+  var ms=S.meals||[];if(!ms.length)return '';
+  return '<section class="blk"><h3 class="sec">Your meals</h3><div class="results">'+ms.map(function(m){
+    var k=sum(m.items,'kcal'),p=sum(m.items,'protein');
+    if(S.add.confirmMeal===m.id)return '<div class="res"><span class="row-name">Delete “'+esc(m.name)+'”?</span><span class="chips"><button class="btn sm danger-fill" data-act="mdelyes" data-id="'+esc(m.id)+'">Delete</button><button class="btn sm ghost" data-act="mdelno">Keep</button></span></div>';
+    return '<div class="res mrow"><button class="mlog" data-act="mlog" data-id="'+esc(m.id)+'"><span class="row-name">'+esc(m.name)+'<small>'+m.items.length+' item'+(m.items.length===1?'':'s')+': '+esc(m.items.map(function(e){return e.name}).join(', '))+'</small></span><span class="res-nums">'+kc(k)+' kcal<small>'+g(p)+' g protein</small></span></button><button class="x" data-act="mdel" data-id="'+esc(m.id)+'" aria-label="Delete '+esc(m.name)+'">×</button></div>';
+  }).join('')+'</div></section>';
+}
 function recentHtml(){
   var list=S.recent;
-  if(list==null)return '<div class="skel">Loading your foods…</div>';
+  if(list==null)return mealsHtml()+'<div class="skel">Loading your foods…</div>';
+  if(!list.length&&(S.meals||[]).length)return mealsHtml();
   if(!list.length)return '<div class="empty"><h2>Nothing yet</h2><p>Foods you log show up here with the amount you had last time, so repeats take two taps. Scan a barcode or search to add your first.</p><div class="chips"><button class="btn primary" data-act="ftab" data-t="scan">Scan a barcode</button><button class="btn" data-act="ftab" data-t="search">Search</button></div></div>';
   S.add.lists={recent:list};
-  return '<div class="results">'+list.map(function(f,i){return resRow(f,i,'recent')}).join('')+'</div>';
+  return mealsHtml()+'<section class="blk">'+((S.meals||[]).length?'<h3 class="sec">Recent foods</h3>':'')+'<div class="results">'+list.map(function(f,i){return resRow(f,i,'recent')}).join('')+'</div></section>';
 }
 function searchHtml(){
   var a=S.add,h='<form class="search-row" id="fsearch"><input id="fq" type="search" enterkeyhint="search" autocomplete="off" placeholder="e.g. chicken breast, Chobani" value="'+esc(a.q)+'"><button class="btn primary" type="submit">Search</button></form>';
   if(a.searching)return h+'<div class="skel">Searching…</div>';
-  if(!a.results)return h+'<p class="small">Searches your saved foods, Open Food Facts (packaged food, Australian products first) and USDA (whole foods like chicken, rice, eggs).</p>';
-  var r=a.results,groups=[['local','Your foods'],['off','Packaged · Open Food Facts'],['usda','Whole foods · USDA']],any=false;
+  if(!a.results)return h+'<p class="small">Searches your saved foods, the Australian Food Composition Database (whole foods like chicken, rice, eggs), and Open Food Facts (packaged products, Australian first).</p>';
+  var r=a.results,groups=[['local','Your foods'],['afcd','Australian foods · FSANZ'],['off','Packaged · Open Food Facts'],['usda','More whole foods · USDA']],any=false;
   a.lists=r;
   groups.forEach(function(gp){var list=r[gp[0]]||[];if(!list.length)return;any=true;h+='<section class="blk"><h3 class="sec">'+gp[1]+'</h3><div class="results">'+list.map(function(f,i){return resRow(f,i,gp[0])}).join('')+'</div></section>'});
   if(r.offline)h+='<p class="note">You’re offline, so this only searched foods saved on this phone.</p>';
@@ -168,7 +176,7 @@ function doSearch(q){
   var a=S.add;a.q=q;if(!q)return;a.searching=true;a.results=null;renderAddBody();
   GD.api('GET','/api/foods/search?q='+encodeURIComponent(q)+(a.worldwide?'&worldwide=1':'')).then(function(b){if(S.add!==a)return;a.searching=false;a.results=b;renderAddBody()},function(e){
     if(S.add!==a)return;a.searching=false;var ql=q.toLowerCase();
-    a.results={local:(S.recent||[]).filter(function(f){return (f.name+' '+(f.brand||'')).toLowerCase().indexOf(ql)>=0}),off:[],usda:[],offline:!!e.offline,errors:{}};
+    a.results={local:(S.recent||[]).filter(function(f){return (f.name+' '+(f.brand||'')).toLowerCase().indexOf(ql)>=0}),afcd:[],off:[],usda:[],offline:!!e.offline,errors:{}};
     if(!e.offline)GD.toast(e.message);renderAddBody();
   });
 }
@@ -258,7 +266,7 @@ function amountHtml(){
   if(f.last_grams&&f.last_grams!==f.serving_g)chips.push({g:f.last_grams,l:'Last time · '+g(f.last_grams)+' g'});
   [50,100,150,200,250].forEach(function(x){if(!chips.some(function(c){return c.g===x}))chips.push({g:x,l:x+' g'})});
   return '<section class="card amount">'
-    +'<div><span class="src">'+(f.source==='off'?'Open Food Facts':f.source==='usda'?'USDA':'Your food')+(f.barcode?' · '+esc(f.barcode):'')+'</span><h3>'+esc(f.name)+'</h3>'+(f.brand?'<p class="small">'+esc(f.brand)+'</p>':'')+'</div>'
+    +'<div><span class="src">'+(f.source==='off'?'Open Food Facts':f.source==='usda'?'USDA':f.source==='afcd'?'Australian Food Composition Database':'Your food')+(f.barcode?' · '+esc(f.barcode):'')+'</span><h3>'+esc(f.name)+'</h3>'+(f.brand?'<p class="small">'+esc(f.brand)+'</p>':'')+'</div>'
     +'<p class="per100">Per 100 g: '+kc(f.kcal)+' kcal · '+g(f.protein)+' g protein · '+g(f.carbs)+' g carbs · '+g(f.fat)+' g fat</p>'
     +(ok?'':'<p class="warn">No calories or protein on file. Add them from the label first.</p>')
     +'<div class="field"><label for="fg">Grams</label><div class="step big-step"><button data-act="fg-" aria-label="10 grams less">−</button><input id="fg" type="text" inputmode="decimal" autocomplete="off" value="'+esc(g(a.grams))+'"><button data-act="fg+" aria-label="10 grams more">+</button></div></div>'
@@ -331,12 +339,60 @@ function delEntry(id){
 }
 function pressSeg(t){t.parentNode.querySelectorAll('button').forEach(function(b){b.setAttribute('aria-pressed',String(b===t))})}
 
+/* ---------- copy yesterday + saved meals ---------- */
+// Log a list of entries (from yesterday or a saved meal) into a meal on the selected day.
+function addEntries(items,meal){
+  var now=Date.now(),date=S.foodDate;
+  items.forEach(function(it,i){
+    var id=GD.rid(),t=now+i;
+    var e={id:id,date:date,meal:meal,food_id:it.food_id||null,name:it.name,brand:it.brand||null,grams:it.grams,kcal100:it.kcal100,protein100:it.protein100,carbs100:it.carbs100,fat100:it.fat100,kcal:it.kcal,protein:it.protein,carbs:it.carbs,fat:it.fat,created_at:t};
+    var body={id:id,date:date,meal:meal,grams:it.grams,name:it.name,kcal:it.kcal,protein:it.protein,carbs:it.carbs,fat:it.fat,createdAt:t,_local:e};
+    if(it.food_id)body.foodId=it.food_id;
+    addLocal(e);GD.queue('POST','/api/food/log',body,{entry:id});
+  });
+}
+function copyMeal(meal){
+  var prev=GD.dkey(GD.addDays(GD.parseKey(S.foodDate),-1)),items=(S.foodDays[prev]||[]).filter(function(e){return e.meal===meal});
+  if(!items.length)return;addEntries(items,meal);GD.haptic();GD.render();GD.toast('Copied '+items.length+' item'+(items.length===1?'':'s')+' into '+MEAL_NAME[meal].toLowerCase()+'.');
+}
+function saveMealSheet(meal){
+  var items=(S.foodDays[S.foodDate]||[]).filter(function(e){return e.meal===meal});if(!items.length)return;
+  S.mealDraft={meal:meal,items:items};
+  GD.openSheet('<h2 id="sheetT">Save as a meal</h2><p>'+esc(items.map(function(e){return e.name+(e.grams!=null?' '+g(e.grams)+' g':'')}).join(', '))+'</p>'
+    +'<div class="field"><label for="mName">Name</label><input id="mName" autocomplete="off" value="'+esc('Usual '+MEAL_NAME[meal].toLowerCase())+'"></div>'
+    +'<p class="small">It shows at the top of Recent when you add food, and logs everything in one tap.</p>'
+    +'<div class="sheet-btns"><button class="btn primary block big" data-act="msave">Save meal</button><button class="btn ghost block" data-act="sclose">Cancel</button></div>','d-food');
+  var i=$('#mName');if(i)i.select();
+}
+function saveMeal(){
+  var d=S.mealDraft;if(!d)return;var name=$('#mName').value.trim();if(!name){GD.toast('Give the meal a name.');return}
+  var id=GD.rid(),items=d.items.map(function(e){return {food_id:e.food_id,name:e.name,brand:e.brand,grams:e.grams,kcal100:e.kcal100,protein100:e.protein100,carbs100:e.carbs100,fat100:e.fat100,kcal:e.kcal,protein:e.protein,carbs:e.carbs,fat:e.fat}});
+  S.meals=(S.meals||[]).concat([{id:id,name:name,items:items,use_count:0}]);LS.set('meals',S.meals);
+  GD.queue('PUT','/api/meals/'+id,{name:name,items:items});S.mealDraft=null;GD.closeSheet();GD.toast('Saved “'+name+'”.');
+}
+function logMeal(id){
+  var m=(S.meals||[]).find(function(x){return x.id===id});if(!m||!S.add)return;var meal=S.add.meal;
+  addEntries(m.items,meal);m.use_count=(m.use_count||0)+1;LS.set('meals',S.meals);GD.queue('POST','/api/meals/'+id+'/used');
+  GD.haptic();closeAdd();GD.render();GD.toast('Added '+m.name+' to '+MEAL_NAME[meal].toLowerCase()+'.');
+}
+GD.food={
+  openWith:function(f,grams){openAdd(defaultMeal(),'recent');pick(f);S.add.grams=grams;renderAddBody()},
+  openSearch:function(q){openAdd(defaultMeal(),'search');doSearch(q)}
+};
+
 /* ---------- actions ---------- */
 Object.assign(GD.ACT,{
   fday:function(t){var d=GD.addDays(GD.parseKey(S.foodDate),+t.dataset.d),k=GD.dkey(d);if(k>today())return;S.foodDate=k;GD.render()},
   fgo:function(t){S.foodDate=t.dataset.date;GD.render()},
   fadd:function(t){openAdd(t.dataset.meal,t.dataset.t)},
   fquick:quickSheet,
+  fcopy:function(t){copyMeal(t.dataset.meal)},
+  fsavemeal:function(t){saveMealSheet(t.dataset.meal)},
+  msave:saveMeal,
+  mlog:function(t){logMeal(t.dataset.id)},
+  mdel:function(t){S.add.confirmMeal=t.dataset.id;renderAddBody()},
+  mdelno:function(){S.add.confirmMeal=null;renderAddBody()},
+  mdelyes:function(t){var id=t.dataset.id;S.meals=(S.meals||[]).filter(function(m){return m.id!==id});LS.set('meals',S.meals);GD.queue('DELETE','/api/meals/'+id);S.add.confirmMeal=null;renderAddBody()},
   fclose:closeAdd,
   fback:function(){var a=S.add;if(!a)return;if(a.picked){a.picked=null;renderAddBody()}else closeAdd()},
   ftab:function(t){setTab(t.dataset.t)},
@@ -356,9 +412,7 @@ Object.assign(GD.ACT,{
   fedit:function(t){editSheet(t.dataset.id)},
   'eg-':function(){editGrams(-10)},'eg+':function(){editGrams(10)},
   esave:function(t){saveEdit(t.dataset.id)},
-  edel:function(t){delEntry(t.dataset.id)},
-  tsave:function(){var p=num($('#tProt').value),k=num($('#tKcal').value);if(!p&&!k){GD.toast('Enter at least one target.');return}
-    if(p)GD.setSetting('proteinTarget',Math.round(p),true);if(k)GD.setSetting('kcalTarget',Math.round(k),true);GD.render();GD.toast('Targets saved. Change them any time in Plan → Settings.')}
+  edel:function(t){delEntry(t.dataset.id)}
 });
 function editGrams(d){var i=$('#eg');if(!i)return;var v=Math.max(0,(num(i.value)||0)+d);i.value=g(v);updateEditCalc()}
 function updateEditCalc(){var i=$('#eg'),el=$('#ecalc');if(!i||!el)return;var b=document.querySelector('[data-act="esave"]'),e=b&&findEntry(b.dataset.id);if(!e)return;el.innerHTML=calcHtml(calc({kcal:e.kcal100,protein:e.protein100,carbs:e.carbs100,fat:e.fat100},num(i.value)))}
@@ -373,13 +427,14 @@ document.addEventListener('input',function(e){
   if(e.target.id==='eg')updateEditCalc();
 });
 document.addEventListener('keydown',function(e){
+  if(e.key==='Enter'&&e.target.id==='mName'){e.preventDefault();saveMeal();return}
   if(e.key==='Escape'&&S.add){e.preventDefault();GD.ACT.fback()}
   if(e.key==='Enter'&&e.target.id==='fg'){e.preventDefault();logPicked()}
 });
 
 /* ---------- lifecycle ---------- */
 GD.onFlushed=function(){if(S.tab==='food'){S.foodLoaded[S.foodDate]=false;loadDay(S.foodDate,true)}};
-GD.onResume=function(){if(S.tab==='food'){if(S.foodDate<today()&&S.foodDate===GD.dkey(GD.addDays(new Date(),-1)))S.foodDate=today();loadDay(S.foodDate,true);loadWeek(S.foodDate)}};
-GD.onTab=function(t){if(t==='food'){S.foodLoaded[S.foodDate]=false;S.weekTotals.__loaded=0}};
+GD.onResume=function(){if(S.tab==='food'){GD.coach.refresh();if(S.foodDate<today()&&S.foodDate===GD.dkey(GD.addDays(new Date(),-1)))S.foodDate=today();loadDay(S.foodDate,true);loadWeek(S.foodDate)}};
+GD.onTab=function(t){if(t==='food'){S.foodLoaded[S.foodDate]=false;S.weekTotals.__loaded=0;S.coachTotals=null}};
 GD.onImported=function(){S.foodLoaded={};S.foodDays={};S.weekTotals={};S.recent=null};
 })();

@@ -129,3 +129,17 @@ test('export then import into a fresh database', async () => {
   assert.equal(imp.status, 200);
   assert.equal((await api('GET', '/api/food/day/2026-10-23')).body.entries.length, 3, 'import must not duplicate log entries');
 });
+
+test('saved meals round-trip and survive export/import', async () => {
+  const items = [{ food_id: null, name: 'Oats', grams: 60, kcal100: 380, protein100: 12, kcal: 228, protein: 7.2 }];
+  assert.equal((await api('PUT', '/api/meals/m1', { name: 'Usual breakfast', items })).status, 200);
+  assert.equal((await api('PUT', '/api/meals/m2', { name: '', items })).status, 400);
+  await api('POST', '/api/meals/m1/used');
+  const list = (await api('GET', '/api/meals')).body.meals;
+  assert.equal(list[0].name, 'Usual breakfast');
+  assert.equal(list[0].use_count, 1);
+  assert.equal(list[0].items[0].grams, 60);
+  const dump = (await api('GET', '/api/export')).body;
+  assert.equal(dump.meals.length, 1);
+  assert.equal((await api('POST', '/api/import', dump)).body.counts.meals, 1);
+});

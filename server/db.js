@@ -71,6 +71,16 @@ CREATE TABLE IF NOT EXISTS food_log (
 );
 CREATE INDEX IF NOT EXISTS food_log_date ON food_log(date);
 
+CREATE TABLE IF NOT EXISTS saved_meals (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  items TEXT NOT NULL,
+  use_count INTEGER NOT NULL DEFAULT 0,
+  last_used INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS body (
   date TEXT PRIMARY KEY,
   weight REAL, waist REAL, arm REAL,

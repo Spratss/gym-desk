@@ -1,8 +1,8 @@
 // Gym Desk service worker: keeps the app shell on the phone so it opens with no signal.
 // API calls always go to the network; the app queues changes itself while offline.
-const CACHE = 'gymdesk-shell-v1';
+const CACHE = 'gymdesk-shell-v2';
 const SHELL = [
-  '/', '/styles.css', '/app.js', '/food.js', '/manifest.webmanifest',
+  '/', '/styles.css', '/app.js', '/food.js', '/coach.js', '/manifest.webmanifest',
   '/icons/icon.svg', '/icons/icon-192.png',
   '/fonts/barlow-latin-400-normal.woff2', '/fonts/barlow-latin-500-normal.woff2', '/fonts/barlow-latin-600-normal.woff2', '/fonts/barlow-latin-700-normal.woff2',
   '/fonts/big-shoulders-display-latin-700-normal.woff2', '/fonts/big-shoulders-display-latin-800-normal.woff2', '/fonts/big-shoulders-display-latin-900-normal.woff2',

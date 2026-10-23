@@ -4,9 +4,11 @@ const crypto = require('node:crypto');
 const express = require('express');
 const { db, DATA_DIR } = require('./db');
 const food = require('./food');
+const afcd = require('./afcd');
 
 const PORT = Number(process.env.PORT) || 8080;
 const APP_PASSWORD = process.env.APP_PASSWORD || '';
+const USDA_MODE = (process.env.USDA || 'auto').toLowerCase();
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const VERSION = require('../package.json').version;
 
@@ -157,7 +159,7 @@ function cleanFood(b, base = {}) {
 }
 // Save a food (custom, or picked from search) and return the stored row. Matches on barcode or source id.
 function upsertFood(b) {
-  const source = ['off', 'usda', 'custom'].includes(b.source) ? b.source : 'custom';
+  const source = ['off', 'usda', 'afcd', 'custom'].includes(b.source) ? b.source : 'custom';
   const sourceId = b.source_id ? String(b.source_id) : null;
   let row = (b.id && fq.byId.get(b.id)) || (sourceId && source !== 'custom' && fq.bySource.get(source, sourceId)) || null;
   const c = cleanFood(b, row || {});
@@ -176,18 +178,21 @@ function upsertFood(b) {
 app.get('/api/foods/recent', (req, res) => res.json({ foods: fq.recent.all().map(foodOut) }));
 app.get('/api/foods/search', wrap(async (req, res) => {
   const term = String(req.query.q || '').trim().slice(0, 80);
-  if (!term) return res.json({ local: [], off: [], usda: [], errors: {} });
+  if (!term) return res.json({ local: [], afcd: [], off: [], usda: [], errors: {} });
   const like = '%' + term.replace(/[%_]/g, '') + '%';
   const local = fq.search.all(like, like, term.replace(/\D/g, '') || '-').map(foodOut);
+  const have = new Set(local.map((f) => f.source + ':' + (f.source_id || f.id)));
+  const fresh = (list) => list.filter((f) => !have.has(f.source + ':' + f.source_id));
+  const au = fresh(afcd.search(term));
   const worldwide = req.query.worldwide === '1';
+  // USDA is a fallback for whole foods the Australian database doesn't have (USDA=always to always include it).
+  const wantUsda = USDA_MODE === 'always' || req.query.usda === '1' || (USDA_MODE !== 'off' && local.length + au.length < 4);
   const errors = {};
   const [off, usda] = await Promise.all([
     food.offSearch(term, { worldwide }).catch((e) => { errors.off = e.message; return []; }),
-    req.query.usda === '0' ? [] : food.usdaSearch(term).catch((e) => { errors.usda = e.message; return []; }),
+    wantUsda ? food.usdaSearch(term).catch((e) => { errors.usda = e.message; return []; }) : [],
   ]);
-  const have = new Set(local.map((f) => f.source + ':' + (f.source_id || f.id)));
-  const fresh = (list) => list.filter((f) => !have.has(f.source + ':' + f.source_id));
-  res.json({ local, off: fresh(off), usda: fresh(usda), errors });
+  res.json({ local, afcd: au, off: fresh(off), usda: fresh(usda), usdaSkipped: !wantUsda, errors });
 }));
 app.get('/api/foods/barcode/:code', wrap(async (req, res) => {
   const code = String(req.params.code).replace(/\D/g, '');
@@ -296,6 +301,43 @@ app.put('/api/body/:date', (req, res) => {
 });
 app.delete('/api/body/:date', (req, res) => { bq.del.run(req.params.date); res.json({ ok: true }); });
 
+/* ---------- Australian food database ---------- */
+app.get('/api/afcd', (req, res) => res.json(afcd.status()));
+app.post('/api/afcd/refresh', wrap(async (req, res) => res.json(await afcd.refresh())));
+app.post('/api/afcd/upload', express.raw({ type: () => true, limit: '30mb' }), (req, res) => {
+  if (!req.body || !req.body.length) return bad(res, 'Choose the FSANZ “Nutrient profiles” .xlsx file.');
+  try { res.json(afcd.importFile(req.body)); } catch (e) { bad(res, e.message); }
+});
+
+/* ---------- saved meals ---------- */
+const mq = {
+  all: db.prepare('SELECT id, name, items, use_count, last_used FROM saved_meals ORDER BY use_count DESC, name'),
+  put: db.prepare(`INSERT INTO saved_meals(id, name, items, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET name = excluded.name, items = excluded.items, updated_at = excluded.updated_at`),
+  used: db.prepare('UPDATE saved_meals SET use_count = use_count + 1, last_used = ? WHERE id = ?'),
+  del: db.prepare('DELETE FROM saved_meals WHERE id = ?'),
+};
+const mealOut = (r) => ({ id: r.id, name: r.name, items: parse(r.items) || [], use_count: r.use_count, last_used: r.last_used });
+function cleanItems(items) {
+  return (Array.isArray(items) ? items : []).slice(0, 40).map((e) => ({
+    food_id: e.food_id || null, name: String(e.name || 'Food').slice(0, 140), brand: e.brand || null, grams: r1(n(e.grams)),
+    kcal100: r1(n(e.kcal100)), protein100: r1(n(e.protein100)), carbs100: r1(n(e.carbs100)), fat100: r1(n(e.fat100)),
+    kcal: r1(n(e.kcal)), protein: r1(n(e.protein)), carbs: r1(n(e.carbs)), fat: r1(n(e.fat)),
+  }));
+}
+app.get('/api/meals', (req, res) => res.json({ meals: mq.all.all().map(mealOut) }));
+app.put('/api/meals/:id', (req, res) => {
+  const b = req.body || {};
+  const name = String(b.name || '').trim().slice(0, 80);
+  const items = cleanItems(b.items);
+  if (!name) return bad(res, 'Give the meal a name.');
+  if (!items.length) return bad(res, 'A meal needs at least one food.');
+  mq.put.run(req.params.id.slice(0, 64), name, JSON.stringify(items), now(), now());
+  res.json({ ok: true });
+});
+app.post('/api/meals/:id/used', (req, res) => { mq.used.run(now(), req.params.id); res.json({ ok: true }); });
+app.delete('/api/meals/:id', (req, res) => { mq.del.run(req.params.id); res.json({ ok: true }); });
+
 /* ---------- backup ---------- */
 app.get('/api/export', (req, res) => {
   const plan = {};
@@ -308,13 +350,14 @@ app.get('/api/export', (req, res) => {
     foods: db.prepare(`SELECT ${FOOD_COLS} FROM foods`).all().map(foodOut),
     foodLog: db.prepare('SELECT * FROM food_log ORDER BY date, created_at').all(),
     body: db.prepare('SELECT date, weight, waist, arm, note FROM body ORDER BY date').all(),
+    meals: mq.all.all().map(mealOut),
   };
   res.setHeader('Content-Disposition', `attachment; filename="gym-desk-backup-${out.exportedAt.slice(0, 10)}.json"`);
   res.json(out);
 });
 app.post('/api/import', (req, res) => {
   const b = req.body || {};
-  const counts = { plan: 0, sessions: 0, settings: 0, foods: 0, foodLog: 0, body: 0 };
+  const counts = { plan: 0, sessions: 0, settings: 0, foods: 0, foodLog: 0, body: 0, meals: 0 };
   db.exec('BEGIN');
   try {
     for (const day of DAYS) if (b.plan && b.plan[day] && Array.isArray(b.plan[day].exercises)) { savePlan(day, b.plan[day]); counts.plan++; }
@@ -334,6 +377,10 @@ app.post('/api/import', (req, res) => {
       counts.foodLog++;
     }
     for (const x of b.body || []) if (x && isDate(x.date)) { bq.put.run(x.date, n(x.weight), n(x.waist), n(x.arm), x.note || null, now()); counts.body++; }
+    for (const m of b.meals || []) {
+      const items = cleanItems(m && m.items).map((e) => ({ ...e, food_id: idMap[e.food_id] || e.food_id }));
+      if (m && m.id && m.name && items.length) { mq.put.run(String(m.id).slice(0, 64), String(m.name).slice(0, 80), JSON.stringify(items), now(), now()); counts.meals++; }
+    }
     db.exec('COMMIT');
   } catch (e) {
     db.exec('ROLLBACK');
@@ -363,6 +410,9 @@ app.use((err, req, res, next) => {
 });
 
 if (require.main === module) {
-  app.listen(PORT, () => console.log(`Gym Desk ${VERSION} on :${PORT}${APP_PASSWORD ? ' (password on)' : ''} · data in ${DATA_DIR}`));
+  app.listen(PORT, () => {
+    console.log(`Gym Desk ${VERSION} on :${PORT}${APP_PASSWORD ? ' (password on)' : ''} · data in ${DATA_DIR}`);
+    afcd.ensure();
+  });
 }
 module.exports = app;

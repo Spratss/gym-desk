@@ -1,6 +1,6 @@
 {
   "name": "gym-desk",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Self-hosted gym and food tracker",
   "main": "server/index.js",
   "scripts": {
@@ -9,7 +9,8 @@
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
-    "express": "5.1.0"
+    "express": "5.1.0",
+    "fflate": "0.8.2"
   },
   "private": true,
   "engines": {

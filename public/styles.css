@@ -300,7 +300,14 @@ body.has-rest #view{padding-bottom:calc(var(--nav-h) + 128px + env(safe-area-ins
 .entry .row-name small{font-size:13px}
 .entry-nums{text-align:right;font-size:14px;font-weight:700;white-space:nowrap}
 .entry-nums small{display:block;font-weight:600;color:var(--muted)}
-.meal-add{justify-self:start}
+.meal-links{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.copy{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;padding:10px 12px;border-radius:12px;border:1.5px dashed var(--line);color:var(--ink)}
+.copy .row-name small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.copy:hover,.copy:focus-visible{border-color:var(--food)}
+.mrow{grid-template-columns:minmax(0,1fr) 36px;padding:0}
+.mlog{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 0 10px 12px;width:100%;text-align:left}
+.res.on{border-color:var(--day);box-shadow:inset 0 0 0 1px var(--day)}
+.coach .results .res{text-align:left}
 .targets{padding:16px;display:grid;gap:12px}
 
 /* full-screen add sheet */
