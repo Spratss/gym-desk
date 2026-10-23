@@ -1,0 +1,19 @@
+{
+  "name": "gym-desk",
+  "version": "1.0.0",
+  "description": "Self-hosted gym and food tracker",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "5.1.0"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
+  "license": "UNLICENSED"
+}

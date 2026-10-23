@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gym Desk</title>
+<meta name="description" content="Training and food tracker">
+<meta name="theme-color" content="#ECEEEF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1113" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<link rel="preload" href="/fonts/barlow-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/big-shoulders-display-latin-900-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/styles.css">
+<script src="/app.js" defer></script>
+<script src="/food.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-inner">
+    <div class="brand"><span class="plate" style="--s:22px"></span>Gym Desk</div>
+    <button id="sync" class="sync" data-act="syncinfo" aria-live="polite"><i></i><span>Saved</span></button>
+  </div>
+  <div id="strip" class="strip-band" hidden></div>
+</header>
+
+<main id="view" class="wrap">
+  <div class="skel">Loading…</div>
+</main>
+
+<div id="restBar" class="rest" hidden>
+  <div class="rest-fill" id="restFill"></div>
+  <div class="wrap rest-inner">
+    <div class="rest-txt">
+      <div class="rest-line"><span class="rest-k" id="restKind">Rest</span><span class="rest-time" id="restTime">0:00</span></div>
+      <div class="rest-next" id="restNext"></div>
+    </div>
+    <div class="rest-btns" id="restBtns">
+      <button data-act="rminus" aria-label="15 seconds less">−15</button>
+      <button data-act="rplus" aria-label="15 seconds more">+15</button>
+      <button data-act="rskip">Skip</button>
+    </div>
+    <div class="rest-btns" id="readyBtns" hidden><button data-act="rskip">Got it</button></div>
+  </div>
+</div>
+
+<nav class="nav" aria-label="Sections">
+  <div class="nav-inner">
+    <button data-tab="train" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6M6 6v12M18 6v12M21 9v6M6 12h12"/></svg><span>Train</span></button>
+    <button data-tab="food"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v8a2 2 0 0 0 2 2v8M5 3v5M9 3v5M17 21V3c-2 1-3 4-3 7s1 4 3 4"/></svg><span>Food</span></button>
+    <button data-tab="plan"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg><span>Plan</span></button>
+    <button data-tab="log"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Log</span></button>
+  </div>
+</nav>
+
+<div id="sheet" hidden></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<noscript><p class="wrap">Gym Desk needs JavaScript turned on.</p></noscript>
+</body>
+</html>

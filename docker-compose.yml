@@ -1,0 +1,16 @@
+services:
+  gym-desk:
+    build: .
+    image: gym-desk:local
+    container_name: gym-desk
+    restart: unless-stopped
+    user: "99:100"                 # Unraid's nobody:users, so it can write to appdata
+    ports:
+      - "8085:8080"
+    environment:
+      TZ: ${TZ:-Australia/Melbourne}
+      APP_PASSWORD: ${APP_PASSWORD:-}     # optional extra lock; leave blank if Cloudflare Access is in front
+      USDA_API_KEY: ${USDA_API_KEY:-}     # free key from api.data.gov (blank = shared demo key, low limits)
+      OFF_COUNTRY: ${OFF_COUNTRY:-australia}
+    volumes:
+      - ${DATA_PATH:-/mnt/user/appdata/gym-desk}:/data
